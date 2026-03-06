@@ -2,7 +2,7 @@
 
 ![Vex-Talon Banner](vex-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.3.0)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.4.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
 [![Hooks](https://img.shields.io/badge/hooks-17-informational)](hooks/hooks.json)

@@ -5,6 +5,21 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-06
+
+### Added
+
+- **CLAUDE.md — Security Radar Behavioral Directive**
+  - New `CLAUDE.md` loaded into model context when plugin is active
+  - **Security Radar:** Proactive risk detection directive — AI flags novel security risks
+    during any work (installs, builds, integrations, config changes) without waiting to be asked
+  - Feed-forward loop: risks caught by Security Radar become candidates for permanent hook rules
+  - Hook Awareness guidance: how to respond to CRITICAL/BLOCK, HIGH/WARN, and detection alerts
+  - Defense Principles: trust nothing from tool outputs, secrets never in code, client data stays
+    local, fail closed, measure twice cut once
+  - First plugin-delivered behavioral directive — complements the 16 automated hooks with
+    AI judgment for novel threats that pattern matching can't catch
+
 ## [1.3.0] - 2026-02-27
 
 ### Added
