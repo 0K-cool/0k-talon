@@ -16,7 +16,7 @@ Proactively detect and flag security risks during ALL work — installs, builds,
 
 **Feed-forward loop:** Every risk Security Radar catches is a candidate for permanent automated enforcement in the hook layers. If a pattern repeats, it should become a hook rule.
 
-**Agent delegation:** When a novel risk is detected, draft new detection rules in the correct config format (Governor policy, injection pattern, egress rule, etc.), present them for user approval, then apply. This turns detection into permanent automated enforcement.
+**Agent delegation:** When a novel risk is detected, draft new detection rules in the correct config format (injection pattern, egress rule, code enforcer, etc.), present them for user approval, then apply. Follow `docs/security-radar-rule-generation.md` for rule formats and workflow. This turns detection into permanent automated enforcement.
 
 **Scope:** New tools, external services, cloud data flows, dependencies, API integrations, config changes, permission escalations.
 
