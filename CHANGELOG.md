@@ -5,6 +5,17 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-03-07
+
+### Added
+
+- **OpenA2A Ecosystem Integration (Recommended Companions)**
+  - Added [Secretless AI](https://github.com/opena2a-org/secretless-ai) as recommended credential protection tool
+  - Added [HackMyAgent](https://github.com/opena2a-org/hackmyagent) as recommended security testing tool
+  - New "Credential Protection (Recommended)" section in README under "What You Should Consider Adding"
+  - OpenA2A credited in Credits section
+  - No hook changes — these are external companion tools, not built-in layers
+
 ## [1.5.1] - 2026-03-06
 
 ### Added

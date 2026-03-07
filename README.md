@@ -2,7 +2,7 @@
 
 ![Vex-Talon Banner](vex-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.5.1-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.5.1)
+[![Version](https://img.shields.io/badge/version-1.5.2-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.5.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
 [![Hooks](https://img.shields.io/badge/hooks-17-informational)](hooks/hooks.json)
@@ -328,6 +328,15 @@ Vex-Talon provides the hook-based security layers. The full 20-layer architectur
 |-------|------|--------------|
 | **L10** Native Sandbox | OS-level sandbox (Seatbelt on macOS, bubblewrap on Linux) restricts file and network access | `claude --sandbox` or `/sandbox` inside Claude Code |
 | **L16** Human Decision | You approve or deny each tool call before Claude Code executes it | Built into Claude Code's permission system (default behavior) |
+
+### Credential Protection (Recommended)
+
+| Tool | What | How to Set Up |
+|------|------|--------------|
+| [Secretless AI](https://github.com/opena2a-org/secretless-ai) | Prevents credentials from entering AI context windows. Works with Claude Code, Cursor, Copilot. Supports 1Password, macOS Keychain, HashiCorp Vault, local AES-256-GCM backends | `npm install -g secretless-ai && secretless-ai setup` |
+| [HackMyAgent](https://github.com/opena2a-org/hackmyagent) | Security toolkit for AI agents — verify skills, harden setups, scan for credential exposures. Good companion for testing your Vex-Talon deployment | `npm install -g hackmyagent && hackmyagent scan` |
+
+Both tools are from the [OpenA2A](https://opena2a.org/) ecosystem (open-source AI agent security).
 
 ### Optional External Tools (Advanced)
 
@@ -681,6 +690,8 @@ Threat intelligence: [OpenSourceMalware.com](https://opensourcemalware.com/), [N
 Policy engine: [Cedar](https://www.cedarpolicy.com/) by Amazon (L1 formal authorization, Apache 2.0), [@cedar-policy/cedar-wasm](https://www.npmjs.com/package/@cedar-policy/cedar-wasm).
 
 External tools: [Leash](https://github.com/strongdm/leash) (L11 kernel sandbox), [Pythea/Strawberry](https://github.com/leochlon/pythea) (L13 hallucination detection), [Proximity](https://github.com/fr0gger/proximity) (L18 MCP audit).
+
+Credential protection: [Secretless AI](https://github.com/opena2a-org/secretless-ai) and [HackMyAgent](https://github.com/opena2a-org/hackmyagent) from [OpenA2A](https://opena2a.org/) (open-source AI agent security).
 
 Static analysis: [Semgrep](https://semgrep.dev/) (SAST), [Bandit](https://bandit.readthedocs.io/) (Python), [ShellCheck](https://www.shellcheck.net/) (Bash), [gitleaks](https://github.com/gitleaks/gitleaks) (secrets), [trufflehog](https://github.com/trufflesecurity/trufflehog) (secrets).
 

@@ -1,6 +1,6 @@
 {
   "name": "@vex-talon/core",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Security hooks and policies for Vex-Talon",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

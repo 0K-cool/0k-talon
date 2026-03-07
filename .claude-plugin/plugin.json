@@ -1,6 +1,6 @@
 {
   "name": "vex-talon",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "20-layer defense-in-depth security for Claude Code - hooks, behavioral directives, and security reports",
   "author": {
     "name": "Kelvin Lomboy",
