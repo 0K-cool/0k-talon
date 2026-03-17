@@ -5,6 +5,37 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-03-17
+
+### Added
+
+- **Credential File Protection — L1 Governor (GitHub #34819)**
+  - 2 new CRITICAL policies: `block-credential-file-reads` + `block-credential-file-bash-reads`
+  - Blocks Read tool and Bash display (cat/head/tail/less/more/bat) of credential files
+  - Protected files: `.netrc`, `.npmrc`, `.kube/config`, `.cargo/credentials`, `.docker/config.json`, `.aws/credentials`, `.pgpass`
+  - Maps to: OWASP LLM02 (Sensitive Information Disclosure), OWASP Agentic ASI05
+
+- **@File Mention Guard — UserPromptSubmit Hook (GitHub #35147)**
+  - New cross-cutting hook warns when @file mentions reference sensitive credential/key files
+  - @file mentions bypass ALL PreToolUse hooks (L0-L19) by injecting content directly into context
+  - Provides additionalContext warning to model to prevent credential processing
+  - First UserPromptSubmit hook in vex-talon
+
+### Fixed
+
+- **L0 Secure Code Enforcer — classifyCode() missing language parameter**
+  - `classifyCode()` function signature lacked `language` parameter
+  - Future-proofs for CI injection detection (YAML-specific patterns)
+  - Matches PAI fix for GitHub Actions expression injection detection
+
+### Changed
+
+- L1 Governor: 15 → 17 policies (added 2 credential file protection)
+- hooks.json: Added `UserPromptSubmit` event type (first in vex-talon)
+- L0 classifyCode signature: `(content, filePath)` → `(content, filePath, language)`
+
+---
+
 ## [1.6.0] - 2026-03-09
 
 ### Added

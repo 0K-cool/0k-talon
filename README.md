@@ -5,7 +5,7 @@
 [![Version](https://img.shields.io/badge/version-1.5.2-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.5.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
-[![Hooks](https://img.shields.io/badge/hooks-17-informational)](hooks/hooks.json)
+[![Hooks](https://img.shields.io/badge/hooks-18-informational)](hooks/hooks.json)
 [![Security Layers](https://img.shields.io/badge/security_layers-20-critical)](README.md#architecture)
 [![Zero Config](https://img.shields.io/badge/config-zero_setup-brightgreen)]()
 [![OWASP LLM 2025](https://img.shields.io/badge/OWASP_LLM-2025-blueviolet)](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
@@ -21,7 +21,7 @@
 
 *Vex (velociraptor) + Talon (claw) — sharp, fast, always watching. Defense-in-depth security that strikes before threats land.*
 
-> **This plugin is not for the faint of heart.** Vex-Talon runs 17 hooks on every tool call and config change — 6 before execution, 6 after, plus session lifecycle, config change, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
+> **This plugin is not for the faint of heart.** Vex-Talon runs 18 hooks on every tool call and config change — 6 before execution, 6 after, plus session lifecycle, config change, user prompt, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
 
 Zero cloud dependencies. OWASP LLM 2025 + MITRE ATLAS coverage. Works out of the box.
 
@@ -70,7 +70,7 @@ Most developers run Claude Code with zero security layers. Vex-Talon adds 20.
 
 ## What You Get (Out of the Box)
 
-17 hooks activate automatically after installation (16 security + 1 onboarding). No configuration required.
+18 hooks activate automatically after installation (17 security + 1 onboarding). No configuration required.
 
 ### PreToolUse Hooks (Block Before Execution)
 
@@ -109,6 +109,12 @@ _†L3 requires the [MCP Memory Server](https://github.com/modelcontextprotocol/
 | **L12** | Least Privilege Profiles | Initializes session with permission profiles (dev, audit, client-work, research) |
 | **L3** | Auto Memory Guardian | Scans Claude Code's built-in auto memory (`MEMORY.md`) for injection patterns at session start. Quarantines poisoned files before they influence the session |
 | **STOP** | Security Report | Generates HTML security report with dynamic coverage detection — shows which layers are active vs require setup, framework coverage calculated from your actual environment |
+
+### UserPromptSubmit Hook
+
+| Layer | Name | What It Does |
+|-------|------|-------------|
+| **Cross-cutting** | @File Mention Guard | Warns when @file mentions reference sensitive credential/key files that bypass all PreToolUse hooks (GitHub #35147). Injects additionalContext to prevent credential processing |
 
 ### Dual Notification Pattern
 
@@ -190,7 +196,7 @@ git clone https://github.com/0K-cool/vex-talon.git ~/.claude/plugins/vex-talon
 claude --plugin-dir ~/.claude/plugins/vex-talon
 ```
 
-All 17 hooks activate immediately. No build step required — hooks run directly via Bun.
+All 18 hooks activate immediately. No build step required — hooks run directly via Bun.
 
 To load the plugin automatically on every session, add it to your shell config:
 
@@ -209,7 +215,7 @@ alias claude='claude --plugin-dir ~/.claude/plugins/vex-talon'
 
 On your **first session**, Claude will confirm Vex-Talon is active in its first response:
 
-> 🛡️ **New Plugin Installed** — Vex-Talon is active with 17 hooks protecting this session. Run `/vex-talon:status` for a detailed security dashboard.
+> 🛡️ **New Plugin Installed** — Vex-Talon is active with 18 hooks protecting this session. Run `/vex-talon:status` for a detailed security dashboard.
 
 You can also verify at any time:
 
@@ -618,7 +624,7 @@ All data stays local. Zero cloud dependencies. Zero telemetry.
 ## FAQ
 
 **Why TypeScript + Bun instead of Bash or Python?**
-Bun spawns in ~25ms vs Node.js ~100ms+, which matters when 6 PreToolUse hooks fire on every tool call. TypeScript gives us type safety across 17 hooks sharing common patterns, first-class JSON for hook stdin/stdout, and alignment with Claude Code's own stack (Anthropic [acquired Bun](https://bun.com/blog/bun-joins-anthropic) in December 2025 and built Claude Code on it). Writing 3200-line security scanners in Bash isn't realistic, and Python adds its own dependency headaches (which version? venv? pip packages?). Bun is a single binary install: `curl -fsSL https://bun.sh/install | bash`.
+Bun spawns in ~25ms vs Node.js ~100ms+, which matters when 6 PreToolUse hooks fire on every tool call. TypeScript gives us type safety across 18 hooks sharing common patterns, first-class JSON for hook stdin/stdout, and alignment with Claude Code's own stack (Anthropic [acquired Bun](https://bun.com/blog/bun-joins-anthropic) in December 2025 and built Claude Code on it). Writing 3200-line security scanners in Bash isn't realistic, and Python adds its own dependency headaches (which version? venv? pip packages?). Bun is a single binary install: `curl -fsSL https://bun.sh/install | bash`.
 
 **Does this slow down Claude Code?**
 PreToolUse hooks typically complete in <50ms. PostToolUse hooks run asynchronously. The supply chain API has a 5-second timeout and 24-hour cache.

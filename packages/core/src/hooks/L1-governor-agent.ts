@@ -16,7 +16,7 @@
  * Vex-Talon v0.1.0
  */
 
-import { join } from 'path';
+import { join, basename } from 'path';
 import { TALON_DIR, getAuditLogPath, ensureDirectories, secureAppendLog } from './lib/talon-paths';
 import { checkCircuit, recordSuccess, recordFailure } from './lib/circuit-breaker';
 import { normalizeUnicode } from './lib/unicode-normalize';
@@ -178,6 +178,42 @@ const POLICIES: Policy[] = [
       file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_ENV_EDIT.txt'),
       old_string: '',
       new_string: `[GOVERNOR BLOCKED]\n\nReason: .env files should be edited manually.`
+    }),
+  },
+
+  // === CRITICAL: Credential File Protection (GitHub #34819) ===
+  {
+    name: 'block-credential-file-reads',
+    tool: 'Read',
+    match: (_tool, params) => {
+      const path = String(params.file_path || '');
+      return /\.(netrc|npmrc|pgpass)$/.test(basename(path)) ||
+        path.includes('.kube/config') ||
+        path.includes('.cargo/credentials') ||
+        path.includes('.docker/config.json') ||
+        path.includes('.aws/credentials');
+    },
+    action: 'BLOCK',
+    severity: 'CRITICAL',
+    message: 'Cannot read credential files — contains authentication tokens',
+    modify: (_params) => ({
+      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_CREDENTIAL_READ.txt')
+    }),
+  },
+  {
+    name: 'block-credential-file-bash-reads',
+    tool: 'Bash',
+    match: (_tool, params) => {
+      const cmd = String(params.command || '');
+      const hasCredFile = /\.(netrc|npmrc|pgpass)|\.kube\/config|\.cargo\/credentials|\.docker\/config\.json|\.aws\/credentials/.test(cmd);
+      const hasDisplayCmd = /\b(cat|head|tail|less|more|bat)\b/.test(cmd);
+      return hasCredFile && hasDisplayCmd;
+    },
+    action: 'BLOCK',
+    severity: 'CRITICAL',
+    message: 'Cannot display credential files via Bash — contains authentication tokens',
+    modify: (_params) => ({
+      command: 'echo "[GOVERNOR BLOCKED] Credential file display blocked. Use environment variables or secret managers for credential access."'
     }),
   },
 

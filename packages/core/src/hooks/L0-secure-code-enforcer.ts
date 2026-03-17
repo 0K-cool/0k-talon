@@ -238,7 +238,7 @@ const CRYPTO_PATTERNS = {
 // Code Classification
 // ============================================================================
 
-function classifyCode(content: string, _filePath: string): ClassificationResult {
+function classifyCode(content: string, _filePath: string, language: string): ClassificationResult {
   const normalizedContent = normalizeUnicode(content);
   const triggers: string[] = [];
   let maxRisk: RiskLevel = 'LOW';
@@ -497,7 +497,7 @@ async function main() {
       }
     }
 
-    const classification = classifyCode(content, filePath);
+    const classification = classifyCode(content, filePath, language);
     const shouldBlock = classification.type === 'SECURITY_SENSITIVE' &&
                         classification.riskLevel === 'CRITICAL';
 
