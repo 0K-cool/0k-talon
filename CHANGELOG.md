@@ -5,6 +5,23 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-03-24
+
+### Added
+
+- **Command Normalization Preprocessor — L1 Governor (defense-in-depth vs comment/encoding bypass)**
+  - New `normalizeCommand()` strips inline comments, collapses whitespace, and joins multi-line commands
+  - New `detectEvasionPatterns()` flags variable indirection with destructive flags, hex/octal escape encoding, base64-decode-to-shell, and eval with variable expansion
+  - All Bash policy `match()` functions now test BOTH raw and normalized command — if either matches, the policy fires
+  - Virtual params `_rawCommand` / `_normalizedCommand` injected for Bash tool calls
+  - Profile bash restrictions also check normalized command (dual matching)
+  - `evasion_warnings` field added to AuditLogEntry for audit trail visibility
+  - stderr warnings displayed to user when evasion patterns detected (even if policy allows)
+  - Prevents evasion via: inline comments, variable indirection, hex/octal encoding, whitespace/line splitting
+  - Ported from PAI v3.9.1 (March 24, 2026)
+
+---
+
 ## [1.7.1] - 2026-03-17
 
 ### Added

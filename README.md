@@ -2,7 +2,7 @@
 
 ![Vex-Talon Banner](vex-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.5.2-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.5.1)
+[![Version](https://img.shields.io/badge/version-1.7.2-blue)](https://github.com/0K-cool/vex-talon/releases/tag/v1.7.2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
 [![Hooks](https://img.shields.io/badge/hooks-18-informational)](hooks/hooks.json)
@@ -77,7 +77,7 @@ Most developers run Claude Code with zero security layers. Vex-Talon adds 20.
 | Layer | Name | What It Does |
 |-------|------|-------------|
 | **L0** | Secure Code Enforcer | Blocks CRITICAL vulnerabilities (SQL injection, command injection, hardcoded secrets) before code is written |
-| **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, and input-side DLP (17 secret patterns). Blocks dangerous operations, modifies risky inputs |
+| **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, input-side DLP (17 secret patterns), and command normalization (anti-evasion). Blocks dangerous operations, modifies risky inputs |
 | **L3** | Memory Validation† | Detects instruction injection, fake facts, and context manipulation in MCP memory operations |
 | **L9** | Egress Scanner | Prevents data exfiltration via secrets in URLs, bulk data transfer, base64-encoded payloads, and blocked destinations (pastebin, ngrok, webhook.site) |
 | **L14** | Supply Chain Pre-Install | Blocks 60+ known malicious packages before installation. Optional real-time API via OpenSourceMalware.com |

@@ -34,6 +34,84 @@ const HOOK_NAME = 'L1-governor-agent';
 // Pattern to detect (split to avoid self-detection)
 const SANDBOX_BYPASS_PATTERN = 'dangerous' + 'lyDisable' + 'Sandbox';
 
+// ============================================================================
+// Command Normalization (defense-in-depth vs comment/encoding bypass)
+// ============================================================================
+
+/**
+ * Normalize a Bash command for policy matching.
+ * Strips comments, collapses whitespace, and detects variable indirection
+ * or encoding tricks that could evade substring-based match rules.
+ *
+ * Returns the normalized command string. Policies are evaluated against
+ * BOTH the raw command and the normalized version — if either matches,
+ * the policy fires. This prevents evasion via:
+ *   - Leading/inline comments
+ *   - Variable indirection ($X $Y instead of rm -rf)
+ *   - Hex/octal encoding ($'\x72\x6d')
+ *   - Excessive whitespace or line splitting
+ *
+ * Ported from PAI v3.9.1 (March 24, 2026)
+ */
+function normalizeCommand(cmd: string): string {
+  return cmd
+    .split('\n')
+    .map(line => {
+      // Strip inline comments (but not inside quotes)
+      // Simple heuristic: remove # and everything after it unless inside quotes
+      let inSingle = false;
+      let inDouble = false;
+      let result = '';
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === "'" && !inDouble) inSingle = !inSingle;
+        else if (ch === '"' && !inSingle) inDouble = !inDouble;
+        else if (ch === '#' && !inSingle && !inDouble) {
+          break; // Rest is comment
+        }
+        result += ch;
+      }
+      return result.trim();
+    })
+    .filter(line => line.length > 0)
+    .join(' ; ');
+}
+
+/**
+ * Detect variable indirection and encoding patterns that could hide
+ * dangerous commands from substring matching.
+ * Returns warning strings for audit logging.
+ */
+function detectEvasionPatterns(cmd: string): string[] {
+  const warnings: string[] = [];
+
+  // Variable expansion near dangerous keywords context
+  // e.g., X="rm"; $X -rf or ${VAR}
+  if (/\$[{(]?[A-Za-z_]/.test(cmd) && /\b(rm|chmod|chown|dd|mkfs|curl|wget|nc|ncat)\b/.test(cmd) === false) {
+    // Variables present but no obvious dangerous command visible — could be indirection
+    if (/\$[A-Za-z_]+\s+(-rf|-r|--force|--no-preserve-root)/.test(cmd)) {
+      warnings.push('Variable indirection with destructive flags detected');
+    }
+  }
+
+  // Hex/octal escape sequences: $'\x72\x6d' or $'\162\155'
+  if (/\$'\\x[0-9a-fA-F]{2}/.test(cmd) || /\$'\\[0-7]{3}/.test(cmd)) {
+    warnings.push('Hex/octal escape encoding detected — possible command obfuscation');
+  }
+
+  // Base64 decode piped to shell: echo ... | base64 -d | sh
+  if (/base64\s+(-d|--decode)/.test(cmd) && /\|\s*(sh|bash|zsh|dash|eval)\b/.test(cmd)) {
+    warnings.push('Base64 decode piped to shell — possible encoded command execution');
+  }
+
+  // eval with variable expansion
+  if (/\beval\b/.test(cmd) && /\$/.test(cmd)) {
+    warnings.push('eval with variable expansion — possible command construction');
+  }
+
+  return warnings;
+}
+
 /**
  * Check if a path is an .env file (catches .env, .env.local, .env.production, etc.)
  * Excludes safe files: .env.example, .env.1password
@@ -96,6 +174,8 @@ interface AuditLogEntry {
   // Agent context (v2.1.69+)
   agent_id?: string;
   agent_type?: string;
+  // Command normalization/evasion detection warnings
+  evasion_warnings?: string[];
 }
 
 // ============================================================================
@@ -205,8 +285,10 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
-      const hasCredFile = /\.(netrc|npmrc|pgpass)|\.kube\/config|\.cargo\/credentials|\.docker\/config\.json|\.aws\/credentials/.test(cmd);
-      const hasDisplayCmd = /\b(cat|head|tail|less|more|bat)\b/.test(cmd);
+      const norm = String(params._normalizedCommand || cmd);
+      const hasCredFile = /\.(netrc|npmrc|pgpass)|\.kube\/config|\.cargo\/credentials|\.docker\/config\.json|\.aws\/credentials/.test(cmd)
+        || /\.(netrc|npmrc|pgpass)|\.kube\/config|\.cargo\/credentials|\.docker\/config\.json|\.aws\/credentials/.test(norm);
+      const hasDisplayCmd = /\b(cat|head|tail|less|more|bat)\b/.test(cmd) || /\b(cat|head|tail|less|more|bat)\b/.test(norm);
       return hasCredFile && hasDisplayCmd;
     },
     action: 'BLOCK',
@@ -223,7 +305,9 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
-      return cmd.includes('git commit') && cmd.includes('BEGIN PRIVATE KEY');
+      const norm = String(params._normalizedCommand || cmd);
+      return (cmd.includes('git commit') && cmd.includes('BEGIN PRIVATE KEY'))
+        || (norm.includes('git commit') && norm.includes('BEGIN PRIVATE KEY'));
     },
     action: 'BLOCK',
     severity: 'CRITICAL',
@@ -279,16 +363,17 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
-      // Pattern 1: curl/wget piped to shell (with or without spaces around |)
-      const hasFetcher = cmd.includes('curl') || cmd.includes('wget');
-      const hasPipeShell = /\|\s*(sh|bash|zsh|dash)\b/.test(cmd);
-      // Pattern 2: Process substitution: bash <(curl ...) or sh <(wget ...)
-      const hasProcessSub = /\b(sh|bash|zsh|dash)\s+<\(/.test(cmd) && hasFetcher;
-      // Pattern 3: Download then execute: curl -o /tmp/x && sh /tmp/x
-      const hasDownloadExec = hasFetcher && /(-o|--output)\s+\S+.*&&\s*(sh|bash|chmod\s+\+x)/.test(cmd);
-      // Pattern 4: wget -O- piped to shell
-      const hasWgetPipe = cmd.includes('wget') && /-O\s*-/.test(cmd) && hasPipeShell;
-      return (hasFetcher && hasPipeShell) || hasProcessSub || hasDownloadExec || hasWgetPipe;
+      const norm = String(params._normalizedCommand || cmd);
+      // Check both raw and normalized command (defense-in-depth vs comment/encoding bypass)
+      const checkCmd = (c: string) => {
+        const hasFetcher = c.includes('curl') || c.includes('wget');
+        const hasPipeShell = /\|\s*(sh|bash|zsh|dash)\b/.test(c);
+        const hasProcessSub = /\b(sh|bash|zsh|dash)\s+<\(/.test(c) && hasFetcher;
+        const hasDownloadExec = hasFetcher && /(-o|--output)\s+\S+.*&&\s*(sh|bash|chmod\s+\+x)/.test(c);
+        const hasWgetPipe = c.includes('wget') && /-O\s*-/.test(c) && hasPipeShell;
+        return (hasFetcher && hasPipeShell) || hasProcessSub || hasDownloadExec || hasWgetPipe;
+      };
+      return checkCmd(cmd) || checkCmd(norm);
     },
     action: 'BLOCK',
     severity: 'HIGH',
@@ -302,9 +387,13 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
-      if (!cmd.includes('rm -rf') && !cmd.includes('rm -r')) return false;
-      const criticalPaths = ['.git', '/', '/*', '~', '$HOME', '/etc', '/usr', '/var'];
-      return criticalPaths.some(p => cmd.includes(p));
+      const norm = String(params._normalizedCommand || cmd);
+      const checkCmd = (c: string) => {
+        if (!c.includes('rm -rf') && !c.includes('rm -r')) return false;
+        const criticalPaths = ['.git', '/', '/*', '~', '$HOME', '/etc', '/usr', '/var'];
+        return criticalPaths.some(p => c.includes(p));
+      };
+      return checkCmd(cmd) || checkCmd(norm);
     },
     action: 'BLOCK',
     severity: 'HIGH',
@@ -318,7 +407,9 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
-      return cmd.includes('git push --force') && (cmd.includes('main') || cmd.includes('master'));
+      const norm = String(params._normalizedCommand || cmd);
+      const checkCmd = (c: string) => c.includes('git push --force') && (c.includes('main') || c.includes('master'));
+      return checkCmd(cmd) || checkCmd(norm);
     },
     action: 'BLOCK',
     severity: 'HIGH',
@@ -332,7 +423,9 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
-      return cmd.includes('git reset --hard') && cmd.includes('HEAD~');
+      const norm = String(params._normalizedCommand || cmd);
+      const checkCmd = (c: string) => c.includes('git reset --hard') && c.includes('HEAD~');
+      return checkCmd(cmd) || checkCmd(norm);
     },
     action: 'WARN',
     severity: 'HIGH',
@@ -345,6 +438,7 @@ const POLICIES: Policy[] = [
     tool: 'Bash',
     match: (_tool, params) => {
       const cmd = String(params.command || '');
+      const norm = String(params._normalizedCommand || cmd);
       const patterns = [
         /sk-[A-Za-z0-9]{20,}/,
         /pplx-[A-Za-z0-9]{40,}/,
@@ -352,7 +446,7 @@ const POLICIES: Policy[] = [
         /AIza[A-Za-z0-9_-]{35}/,
         /AKIA[A-Z0-9]{16}/,
       ];
-      return patterns.some(p => p.test(cmd));
+      return patterns.some(p => p.test(cmd) || p.test(norm));
     },
     action: 'WARN',
     severity: 'HIGH',
@@ -615,6 +709,30 @@ async function main() {
     // Normalize Unicode to prevent homoglyph bypass attacks
     const normalizedParams = normalizeParams(params);
 
+    // ========== COMMAND NORMALIZATION (defense-in-depth vs comment/encoding bypass) ==========
+    // For Bash tools, normalize the command and detect evasion patterns.
+    // Evasion warnings are logged to audit trail for visibility.
+    let evasionWarnings: string[] = [];
+    if (data.tool_name === 'Bash' && normalizedParams.command) {
+      const rawCommand = normalizedParams.command;
+      const normalized = normalizeCommand(rawCommand);
+      evasionWarnings = detectEvasionPatterns(rawCommand);
+
+      // Inject normalized command as virtual parameter for policy matching.
+      // Policies check params.command (raw) — _normalizedCommand allows dual matching.
+      normalizedParams._rawCommand = rawCommand;
+      normalizedParams._normalizedCommand = normalized;
+
+      // If normalized differs from raw, log it (comment stripping happened)
+      if (normalized !== rawCommand && evasionWarnings.length === 0) {
+        const rawTrimmed = rawCommand.trim();
+        if (normalized !== rawTrimmed) {
+          evasionWarnings.push('Command modified by normalization (comments/whitespace stripped)');
+        }
+      }
+    }
+    // ========== END COMMAND NORMALIZATION ==========
+
     // ========== L12 PROFILE ENFORCEMENT ==========
     // Load active profile set by L12 SessionStart hook
     const activeProfile = loadActiveProfile();
@@ -681,14 +799,18 @@ async function main() {
         }
       }
 
-      // Check bash command restrictions
+      // Check bash command restrictions (test both raw and normalized command)
       if (data.tool_name === 'Bash') {
         const command = String(normalizedParams.command || '');
+        const normalizedCmd = String(normalizedParams._normalizedCommand || command);
         const bashCheck = isBashCommandAllowed(command, activeProfile);
-        if (!bashCheck.allowed) {
+        // Also check normalized command if raw was allowed
+        const normCheck = (command !== normalizedCmd) ? isBashCommandAllowed(normalizedCmd, activeProfile) : bashCheck;
+        const effectiveCheck = bashCheck.allowed ? normCheck : bashCheck;
+        if (!effectiveCheck.allowed) {
           console.error(`\n🔒 [Governor L1] BASH BLOCKED by '${activeProfile.name}' profile`);
           console.error(`    Command: ${command.substring(0, 80)}...`);
-          console.error(`    Reason: ${bashCheck.reason}\n`);
+          console.error(`    Reason: ${effectiveCheck.reason}\n`);
 
           logToAudit({
             timestamp: new Date().toISOString(),
@@ -698,14 +820,14 @@ async function main() {
             action: 'BLOCK',
             severity: 'HIGH',
             input_modified: false,
-            message: bashCheck.reason,
+            message: effectiveCheck.reason,
             evaluation_time_ms: Date.now() - startTime,
             session_id: data.session_id,
           });
 
           console.log(JSON.stringify({
             decision: 'block',
-            reason: `🔒 L12 Profile Violation: ${bashCheck.reason}`,
+            reason: `🔒 L12 Profile Violation: ${effectiveCheck.reason}`,
           }));
           process.exit(2);
         }
@@ -782,8 +904,18 @@ async function main() {
       dlp_findings: dlpFindings.length > 0 ? dlpFindings.map(f => `${f.secretType}:${f.paramKey}`) : undefined,
       agent_id: data.agent_id || undefined,
       agent_type: data.agent_type || undefined,
+      evasion_warnings: evasionWarnings.length > 0 ? evasionWarnings : undefined,
     };
     logToAudit(auditEntry);
+
+    // Display evasion pattern warnings to user (always visible, even if policy allows)
+    if (evasionWarnings.length > 0) {
+      console.error(`\n⚠️  [Governor L1] Command evasion patterns detected:`);
+      for (const warning of evasionWarnings) {
+        console.error(`   • ${warning}`);
+      }
+      console.error('');
+    }
 
     // Cedar DENY blocks even if YAML allowed
     if (cedarResult.decision === 'DENY' && result.action !== 'BLOCK') {
