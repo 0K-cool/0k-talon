@@ -5,6 +5,22 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-04-02
+
+### Added
+
+- **TaskCreated Subagent Audit Hook (#21460 mitigation)**
+  - New `subagent-audit.ts` fires on every subagent spawn (Claude Code v2.1.84+)
+  - 4-tier risk assessment: LOW → MEDIUM → HIGH → CRITICAL
+  - Sensitive prompt pattern detection (exfiltration, credential access, bypass attempts)
+  - JSONL audit log at `logs/subagent-audit.jsonl` with 0o600 permissions
+  - CRITICAL risk injects `additionalContext` warning to model about hook bypass
+  - Maps to OWASP ASI03 (Identity & Privilege Abuse), MITRE ATLAS AML.T0096
+
+### Security
+
+- Mitigates [anthropics/claude-code#21460](https://github.com/anthropics/claude-code/issues/21460) — subagent tool calls bypass all PreToolUse hooks. This hook provides detection/logging since prevention is not possible upstream.
+
 ## [1.7.2] - 2026-03-24
 
 ### Added
