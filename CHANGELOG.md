@@ -5,6 +5,39 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.4] - 2026-04-13
+
+### Added
+
+- **SubagentStop DLP Scanner — Phase 5: Subagent Isolation (#21460 mitigation)**
+  - New `subagent-dlp-scanner.ts` fires on `SubagentStop` (after each subagent completes)
+  - Scans the subagent's full output transcript for sensitive patterns before they are incorporated into parent context
+  - 16 DLP patterns across 3 categories:
+    - **Secrets/credentials:** AWS access keys + secrets, GitHub tokens (ghp_/ghs_/gps_), Anthropic API keys, OpenAI API keys, Stripe live/test keys, PEM private keys, 1Password op:// references, generic password/token/secret patterns
+    - **PII:** US SSNs, email addresses, US phone numbers, credit card numbers (Visa/MC/AmEx)
+    - **Client data:** `output/client-work/` path references, CONFIDENTIAL/PRIVILEGED/HIPAA/PHI markers
+  - Shannon entropy detector catches high-entropy strings (>4.5 bits/char) that evade regex — covers novel or custom token formats
+  - Redacted previews in all log entries (first 4 + last 4 chars only, never full secrets)
+  - Non-blocking by design — ALERT only, never prevents subagent output from returning
+  - JSONL audit log at `~/.vex-talon/logs/subagent-dlp.jsonl` with 0o600 permissions (via `secureAppendLog`)
+  - Maps to OWASP LLM02 (Sensitive Information Disclosure), OWASP Agentic ASI03 (Identity & Privilege Abuse), MITRE ATLAS AML.T0096
+  - Ported from PAI v3.12.0 (April 13, 2026), adapted to use `talon-paths` (`LOGS_DIR`, `secureAppendLog`)
+
+### Changed
+
+- Hook count: 18 → 19 (added SubagentStop event)
+- `hooks/hooks.json`: Added `SubagentStop` event with `subagent-dlp-scanner.ts` (5s timeout)
+- README: Hook count badge 18 → 19, hook tables updated with TaskCreated + SubagentStop section
+
+### Security
+
+- Completes Phase 5 of the #21460 mitigation strategy alongside the existing `subagent-audit.ts` (TaskCreated):
+  - `subagent-audit.ts` (TaskCreated) — detects suspicious spawns at creation time
+  - `subagent-dlp-scanner.ts` (SubagentStop) — scans for data leakage at completion time
+  - Together: full lifecycle visibility for subagents that bypass all PreToolUse hooks
+
+---
+
 ## [1.7.3] - 2026-04-02
 
 ### Added
