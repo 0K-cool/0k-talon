@@ -5,7 +5,7 @@ description: Run comprehensive security analysis on code files for vulnerabiliti
 
 # 0K-Talon Security Scan Skill
 
-Analyze code for security vulnerabilities using the 20-layer defense-in-depth architecture.
+Analyze code for security vulnerabilities using the 21-layer defense-in-depth architecture.
 
 ## When to Use
 
@@ -70,4 +70,4 @@ Analyze code for security vulnerabilities using the 20-layer defense-in-depth ar
 
 - **OWASP LLM 2025**: LLM01-LLM10 (9/10 coverage)
 - **OWASP Agentic 2026**: Full coverage
-- **MITRE ATLAS**: 16+ technique mappings
+- **MITRE ATLAS**: 18+ technique mappings

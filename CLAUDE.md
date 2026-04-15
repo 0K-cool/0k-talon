@@ -1,6 +1,6 @@
 # 0K-Talon Security Directives
 
-These behavioral directives complement 0K-Talon's 16 automated hooks. Hooks catch known patterns; directives guide AI judgment for novel risks.
+These behavioral directives complement 0K-Talon's 20 automated hooks. Hooks catch known patterns; directives guide AI judgment for novel risks.
 
 ---
 

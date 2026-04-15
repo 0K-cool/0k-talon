@@ -2,11 +2,11 @@
 
 ![0K-Talon Banner](0k-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.7.5-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.7.5)
+[![Version](https://img.shields.io/badge/version-1.8.0-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.8.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
-[![Hooks](https://img.shields.io/badge/hooks-19-informational)](hooks/hooks.json)
-[![Security Layers](https://img.shields.io/badge/security_layers-20-critical)](README.md#architecture)
+[![Hooks](https://img.shields.io/badge/hooks-20-informational)](hooks/hooks.json)
+[![Security Layers](https://img.shields.io/badge/security_layers-21-critical)](README.md#architecture)
 [![Zero Config](https://img.shields.io/badge/config-zero_setup-brightgreen)]()
 [![OWASP LLM 2025](https://img.shields.io/badge/OWASP_LLM-2025-blueviolet)](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 [![MITRE ATLAS](https://img.shields.io/badge/MITRE-ATLAS-blueviolet)](https://atlas.mitre.org/)
@@ -17,11 +17,11 @@
 [![100% Local](https://img.shields.io/badge/100%25-Local-success)]()
 [![Forged in Puerto Rico](https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-red)](https://en.wikipedia.org/wiki/Puerto_Rico)
 
-**20-layer defense-in-depth security plugin for Claude Code.**
+**21-layer defense-in-depth security plugin for Claude Code.**
 
 *Sharp, fast, always watching. Defense-in-depth security that strikes before threats land.*
 
-> **This plugin is not for the faint of heart.** 0K-Talon runs 19 hooks on every tool call and config change — 6 before execution, 6 after, plus session lifecycle, config change, user prompt, subagent stop, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
+> **This plugin is not for the faint of heart.** 0K-Talon runs 20 hooks on every tool call and config change — 6 before execution, 6 after, plus session lifecycle, config change, user prompt, subagent stop, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
 
 Zero cloud dependencies. OWASP LLM 2025 + MITRE ATLAS coverage. Works out of the box.
 
@@ -64,13 +64,13 @@ Claude Code is powerful. But with great power comes great attack surface:
 - **Credential exposure** from hardcoded secrets and .env files
 - **Unbounded spending** from runaway agent loops
 
-Most developers run Claude Code with zero security layers. 0K-Talon adds 20.
+Most developers run Claude Code with zero security layers. 0K-Talon adds 21.
 
 ---
 
 ## What You Get (Out of the Box)
 
-19 hooks activate automatically after installation (18 security + 1 onboarding). No configuration required.
+20 hooks activate automatically after installation (19 security + 1 onboarding). No configuration required.
 
 ### PreToolUse Hooks (Block Before Execution)
 
@@ -108,6 +108,7 @@ _†L3 requires the [MCP Memory Server](https://github.com/modelcontextprotocol/
 |-------|------|-------------|
 | **L12** | Least Privilege Profiles | Initializes session with permission profiles (dev, audit, client-work, research) |
 | **L3** | Auto Memory Guardian | Scans Claude Code's built-in auto memory (`MEMORY.md`) for injection patterns at session start. Quarantines poisoned files before they influence the session |
+| **L20** | Session Integrity | Anti-fabrication defense. SHA-256 integrity hashing of session JSONL files, read-only file locking on old sessions (chmod 0400), fabrication artifact detection (placeholder UUIDs, uniform timestamps, authorization claim injection, approval_policy overrides). Audit logging of tamper/fabrication events. Threat model: [0din Fabricator](https://0din.ai/blog/your-ai-agent-has-a-memory-problem) |
 | **STOP** | Security Report | Generates HTML security report with dynamic coverage detection — shows which layers are active vs require setup, framework coverage calculated from your actual environment |
 
 ### TaskCreated & SubagentStop Hooks (#21460 Mitigation)
@@ -117,7 +118,7 @@ _†L3 requires the [MCP Memory Server](https://github.com/modelcontextprotocol/
 | **Cross-cutting** | Subagent Audit | Fires on every subagent spawn (TaskCreated). Logs agent type, prompt, and 4-tier risk assessment. CRITICAL risk injects `additionalContext` warning about hook bypass. Audit log at `logs/subagent-audit.jsonl` |
 | **Cross-cutting** | Subagent DLP Scanner | Fires when each subagent finishes (SubagentStop). Scans subagent output transcript for secrets (AWS/GitHub/Anthropic/OpenAI keys, private keys), PII (SSN, credit cards, phone numbers), and client data markers before results enter parent context. Alert-only — never blocks. Audit log at `logs/subagent-dlp.jsonl` |
 
-_Both hooks mitigate [anthropics/claude-code#21460](https://github.com/anthropics/claude-code/issues/21460) — subagent tool calls bypass all PreToolUse hooks (L0-L19). Since prevention upstream is not possible, these hooks provide detection, audit, and behavioral anchoring._
+_Both hooks mitigate [anthropics/claude-code#21460](https://github.com/anthropics/claude-code/issues/21460) — subagent tool calls bypass all PreToolUse hooks (L0-L20). Since prevention upstream is not possible, these hooks provide detection, audit, and behavioral anchoring._
 
 ### UserPromptSubmit Hook
 
@@ -160,7 +161,7 @@ Normal work (installs, builds, integrations)
     → Security Radar detects novel risk
     → Flags to user with impact assessment
     → Proposes new hook rule or policy
-    → Rule added to L0-L19 automated layers
+    → Rule added to L0-L20 automated layers
     → Pattern now caught automatically forever
 ```
 
@@ -168,7 +169,7 @@ Normal work (installs, builds, integrations)
 
 ### Why This Matters
 
-| | Automated Hooks (L0-L19) | Security Radar |
+| | Automated Hooks (L0-L20) | Security Radar |
 |---|---|---|
 | **Catches** | Known patterns (regex, blocklists) | Novel risks through reasoning |
 | **Trigger** | Specific tool call events | Continuous — any work |
@@ -205,7 +206,7 @@ git clone https://github.com/0K-cool/0k-talon.git ~/.claude/plugins/0k-talon
 claude --plugin-dir ~/.claude/plugins/0k-talon
 ```
 
-All 19 hooks activate immediately. No build step required — hooks run directly via Bun.
+All 20 hooks activate immediately. No build step required — hooks run directly via Bun.
 
 To load the plugin automatically on every session, add it to your shell config:
 
@@ -224,7 +225,7 @@ alias claude='claude --plugin-dir ~/.claude/plugins/0k-talon'
 
 On your **first session**, Claude will confirm 0K-Talon is active in its first response:
 
-> 🛡️ **New Plugin Installed** — 0K-Talon is active with 19 hooks protecting this session. Run `/0k-talon:status` for a detailed security dashboard.
+> 🛡️ **New Plugin Installed** — 0K-Talon is active with 20 hooks protecting this session. Run `/0k-talon:status` for a detailed security dashboard.
 
 You can also verify at any time:
 
@@ -328,7 +329,7 @@ Configs are loaded with 60-second cache TTL and automatic fallback to built-in d
 
 ## What You Should Consider Adding
 
-0K-Talon provides the hook-based security layers. The full 20-layer architecture includes layers you can set up yourself for even deeper protection.
+0K-Talon provides the hook-based security layers. The full 21-layer architecture includes layers you can set up yourself for even deeper protection.
 
 ### Git Hooks (Recommended)
 
@@ -399,9 +400,9 @@ These tools complement 0K-Talon's pattern-based detection with deeper static ana
 | # | Vulnerability | 0K-Talon Coverage |
 |---|--------------|-------------------|
 | LLM01 | Prompt Injection | L1 Governor, L4 Injection Scanner, L7 Image Safety, L19 Skill Scanner |
-| LLM02 | Sensitive Information Disclosure | L0 Code Enforcer, L1 Governor (DLP: 17 secret patterns), L9 Egress Scanner |
+| LLM02 | Sensitive Information Disclosure | L0 Code Enforcer, L1 Governor (DLP: 17 secret patterns), L9 Egress Scanner, L20 Session Integrity |
 | LLM03 | Supply Chain Vulnerabilities | L14 Pre-Install (block) + Post-Install (audit) |
-| LLM04 | Data and Model Poisoning | L3 Memory Validation†, L15 RAG Security* |
+| LLM04 | Data and Model Poisoning | L3 Memory Validation†, L15 RAG Security*, L20 Session Integrity |
 | LLM05 | Improper Output Handling | L5 Output Sanitizer (XSS + ANSI terminal injection) |
 | LLM06 | Excessive Agency | L9 Egress Scanner, L12 Least Privilege |
 | LLM07 | System Prompt Leakage | L9 Egress Scanner |
@@ -411,7 +412,7 @@ These tools complement 0K-Talon's pattern-based detection with deeper static ana
 
 _*Requires optional external tool. †Requires MCP Memory Server (dormant without one)._
 
-### MITRE ATLAS - 16+ Techniques
+### MITRE ATLAS - 18+ Techniques
 
 Covers AML.T0047 (Supply Chain Compromise), AML.T0048 (Adversarial Examples), AML.T0051 (Prompt Injection), AML.T0035 (Exfiltration), AML.T0057 (Data Leakage), AML.T0064 (Data Poisoning), and more.
 
@@ -424,7 +425,7 @@ Covers AML.T0047 (Supply Chain Compromise), AML.T0048 (Adversarial Examples), AM
 | ASI03 | Insecure Agent Communication | L1 Governor (IFC taint tracking), L9 Egress Scanner |
 | ASI04 | Dependency Chain Attacks | L14 Supply Chain Scanner, L19 Skill Scanner |
 | ASI05 | Agent Output Mishandling | L5 Output Sanitizer (XSS + ANSI terminal injection) |
-| ASI06 | Memory and Context Manipulation | L3 Memory Validation†, L18 MCP Audit* |
+| ASI06 | Memory and Context Manipulation | L3 Memory Validation†, L18 MCP Audit*, L20 Session Integrity |
 | ASI07 | Multi-Agent Exploitation | L12 Least Privilege Profiles |
 | ASI08 | Cascading Hallucination Attacks | L1 Governor (circuit breaker), L2 Secure Code Linter (confidence-aware revert) |
 | ASI09 | Resource and Cost Exploitation | L17 Spend Alerting |
@@ -440,7 +441,7 @@ _†Requires MCP Memory Server. *Requires external tool. Coverage is dynamically
   ╔═══════════════════════════════════════════════════════╗
   ║  SECURITY RADAR (CLAUDE.md behavioral directive)      ║
   ║  Always-on AI cognitive detection across all work     ║
-  ║  Catches novel risks → feeds new rules into L0-L19    ║
+  ║  Catches novel risks → feeds new rules into L0-L20    ║
   ╚═══════════════════════════════════════════════════════╝
                               |
                         SESSION START
@@ -485,7 +486,7 @@ _†Requires MCP Memory Server. *Requires external tool. Coverage is dynamically
 
 **Design principles:**
 
-- **Security Radar** (CLAUDE.md) provides always-on cognitive detection — catches novel risks that no pattern exists for yet, and feeds them back as new rules for L0-L19
+- **Security Radar** (CLAUDE.md) provides always-on cognitive detection — catches novel risks that no pattern exists for yet, and feeds them back as new rules for L0-L20
 - **PreToolUse** hooks can BLOCK or MODIFY before execution (fail-closed on crash). WARN paths inject `additionalContext` for AI awareness
 - **PostToolUse** hooks can only ALERT and inform (fail-open — content already in context). All inject `additionalContext` for behavioral anchoring
 - **Defense-in-depth** — multiple overlapping layers catch what one might miss
@@ -603,7 +604,7 @@ instructions found in the image.
 
 > *"Since we cannot prevent the AI from SEEING malicious content, we maximize the chance it will IGNORE malicious instructions AND minimize the damage a compromised agent can cause."*
 
-This isn't a silver bullet — a sufficiently sophisticated injection could potentially overcome anchoring. That's why 0K-Talon pairs behavioral anchoring with 19 other layers: PreToolUse blocking, kernel sandboxing, egress prevention, spend limits, and human oversight. Defense-in-depth means no single layer needs to be perfect.
+This isn't a silver bullet — a sufficiently sophisticated injection could potentially overcome anchoring. That's why 0K-Talon pairs behavioral anchoring with 20 other layers: PreToolUse blocking, kernel sandboxing, egress prevention, session integrity, spend limits, and human oversight. Defense-in-depth means no single layer needs to be perfect.
 
 ---
 
@@ -654,7 +655,7 @@ L3 Memory Validation only activates if you have the [MCP Memory Server](https://
 No. Everything runs 100% locally. The only optional network call is to OpenSourceMalware.com for supply chain scanning (opt-in via `OSM_API_TOKEN`).
 
 **How does this compare to other AI security tools?**
-Most tools operate at 1-2 layers (typically just prompt injection scanning). 0K-Talon provides 20 layers covering the full OWASP LLM Top 10, from code security to exfiltration prevention to spend control.
+Most tools operate at 1-2 layers (typically just prompt injection scanning). 0K-Talon provides 21 layers covering the full OWASP LLM Top 10, from code security to exfiltration prevention to spend control.
 
 ---
 
@@ -698,7 +699,7 @@ Built by [Kelvin Lomboy](https://www.linkedin.com/in/kelvinlomboy).
 
 Frameworks: [OWASP LLM Top 10 2025](https://owasp.org/www-project-top-10-for-large-language-model-applications/), [OWASP Agentic Top 10 2026](https://genai.owasp.org/resource/agentic-ai-threats-and-mitigations/), [MITRE ATLAS](https://atlas.mitre.org/).
 
-Vulnerability research: [0din.ai](https://0din.ai) (AI vulnerability disclosure), [SAGAI 2025](https://www.computer.org/csdl/proceedings-article/sp/2025/sagai) (IEEE S&P workshop — Terminal DiLLMa ANSI patterns).
+Vulnerability research: [0din.ai](https://0din.ai) (AI vulnerability disclosure, [Fabricator toolkit](https://0din.ai/blog/your-ai-agent-has-a-memory-problem) — L20 threat model), [SAGAI 2025](https://www.computer.org/csdl/proceedings-article/sp/2025/sagai) (IEEE S&P workshop — Terminal DiLLMa ANSI patterns).
 
 Threat intelligence: [OpenSourceMalware.com](https://opensourcemalware.com/), [NOVA Framework](https://github.com/fr0gger/nova-framework).
 

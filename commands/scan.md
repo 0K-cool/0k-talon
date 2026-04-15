@@ -15,7 +15,7 @@ arguments:
 
 # 0K-Talon Security Scan
 
-Run the 20-layer defense-in-depth security scan manually.
+Run the 21-layer defense-in-depth security scan manually.
 
 ## Arguments
 

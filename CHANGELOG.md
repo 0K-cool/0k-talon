@@ -5,6 +5,29 @@ All notable changes to Vex-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-04-15
+
+### Added
+
+- **L20: Session Integrity — Anti-Fabrication Defense (0din Threat Model)**
+  - New SessionStart hook protects against session file fabrication attacks
+  - SHA-256 integrity hashing of all session JSONL files
+  - Read-only file locking on old sessions (chmod 0400)
+  - Fabrication artifact detection: placeholder UUIDs, uniform timestamps, authorization claim injection, approval_policy override markers
+  - Audit logging of all tamper/fabrication events
+  - Threat model: [0din.ai — Your AI Agent Has a Memory Problem](https://0din.ai/blog/your-ai-agent-has-a-memory-problem)
+  - Tool defended against: [coding-agent-fabricator](https://github.com/0din-ai/coding-agent-fabricator)
+  - Maps to: OWASP Agentic ASI06 (Memory and Context Manipulation), MITRE ATLAS AML.T0064 (Data Poisoning), AML.T0051 (LLM Prompt Injection), OWASP LLM02 (Sensitive Information Disclosure)
+
+### Changed
+
+- Hook count: 19 → 20 (added L20 Session Integrity at SessionStart)
+- Layer count: 20 → 21 (L0-L20)
+- README: All layer/hook counts updated, L20 added to hook tables and framework coverage
+- SECURITY.md: Scope and version table updated
+
+---
+
 ## [1.7.5] - 2026-04-14
 
 ### Changed
