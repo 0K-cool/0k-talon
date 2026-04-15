@@ -14,10 +14,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun&logoColor=black)](https://bun.sh/)
 [![100% Local](https://img.shields.io/badge/100%25-Local-success)]()
-<p align="center">
-  <a href="https://zeroklabs.ai"><img src="https://img.shields.io/badge/ZeroK_Labs-ØK-black.svg" alt="ZeroK Labs" /></a>
-  <a href="https://en.wikipedia.org/wiki/Puerto_Rico"><img src="https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-c8960c.svg" alt="Forged in Puerto Rico" /></a>
-</p>
+[![ZeroK Labs](https://img.shields.io/badge/ZeroK_Labs-ØK-black)](https://zeroklabs.ai)
+[![Forged in Puerto Rico](https://img.shields.io/badge/Forged_in-Puerto_Rico_🇵🇷-c8960c)](https://en.wikipedia.org/wiki/Puerto_Rico)
 
 **21-layer defense-in-depth security plugin for Claude Code.**
 
