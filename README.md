@@ -446,13 +446,13 @@ _†Requires MCP Memory Server. *Requires external tool. Coverage is dynamically
                               |
                         SESSION START
                               |
-              +---------------+---------------+
-              |               |               |
-         Onboarding     L12: Least       L3: Auto Memory
-         (first run)    Privilege         Guardian
-                        Profiles          (scan MEMORY.md)
-              |               |               |
-              +---------------+---------------+
+         +----------+----------+----------+----------+
+         |          |          |          |
+    Onboarding  L12: Least  L3: Auto   L20: Session
+    (first run) Privilege   Memory     Integrity
+                Profiles    Guardian   (hash+lock)
+         |          |          |          |
+         +----------+----------+----------+
                               |
                          USER REQUEST
                               |
