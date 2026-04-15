@@ -1,8 +1,8 @@
 {
   "name": "0k-talon",
-  "version": "1.7.5",
+  "version": "1.8.0",
   "private": true,
-  "description": "Claude Code security plugin - 20-layer defense-in-depth for AI coding agents",
+  "description": "Claude Code security plugin - 21-layer defense-in-depth for AI coding agents",
   "author": "Kelvin Lomboy",
   "license": "MIT",
   "repository": {
