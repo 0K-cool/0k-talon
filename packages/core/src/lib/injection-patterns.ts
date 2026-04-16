@@ -298,6 +298,30 @@ const DOCUMENTATION_MARKERS = [
   /severity\s*[:\=]\s*["']?(CRITICAL|HIGH|MEDIUM|LOW)/,
 ];
 
+/**
+ * Code syntax exclusions: markers that indicate the match is inside a
+ * programming-language construct, not a prose injection attempt.
+ *
+ * When any of these markers appears in the surrounding context window,
+ * the match is skipped entirely — e.g. Python argparse's `action=` kwarg
+ * is not a prompt injection, it is a library API surface.
+ *
+ * Ported from PAI commit dd9018d (2026-04-16).
+ */
+const CODE_SYNTAX_EXCLUSIONS: RegExp[] = [
+  // Python argparse
+  /add_argument\s*\(/i,
+  /argparse\./i,
+  /ArgumentParser\s*\(/i,
+  // Python Click
+  /click\.(option|argument|command|group)\s*\(/i,
+  /@click\.(option|argument|command|group)/i,
+  // Python Typer
+  /@?typer\.(Option|Argument|Typer)\b/,
+  // Python fire
+  /import\s+fire\b/,
+];
+
 function isDocumentationContext(
   content: string,
   matchPosition: number,
@@ -308,6 +332,27 @@ function isDocumentationContext(
   const contextEnd = Math.min(content.length, matchPosition + matchLength + 100);
   const contextWindow = content.substring(contextStart, contextEnd);
   return DOCUMENTATION_MARKERS.some(marker => marker.test(contextWindow));
+}
+
+/**
+ * Check if a match appears within code-syntax context (e.g. argparse kwargs).
+ *
+ * Unlike isDocumentationContext (which downgrades to LOW), this fully SKIPS
+ * the match — programming-language constructs like `action="store_true"` are
+ * never prompt injections, so there is no residual signal worth preserving.
+ *
+ * Exported for direct unit testing.
+ */
+export function isCodeSyntaxContext(
+  content: string,
+  matchPosition: number,
+  matchLength: number,
+  lookbackChars: number = 400
+): boolean {
+  const contextStart = Math.max(0, matchPosition - lookbackChars);
+  const contextEnd = Math.min(content.length, matchPosition + matchLength + 100);
+  const contextWindow = content.substring(contextStart, contextEnd);
+  return CODE_SYNTAX_EXCLUSIONS.some(marker => marker.test(contextWindow));
 }
 
 // ============================================================================
@@ -349,6 +394,12 @@ export function scanForInjections(
     const match = pattern.pattern.exec(normalizedContent);
 
     if (match) {
+      // Code syntax exclusion: skip matches inside argparse/Click/Typer kwargs.
+      // These are API-surface tokens, never prompt-injection prose.
+      if (contextAware && isCodeSyntaxContext(content, match.index, match[0].length)) {
+        continue;
+      }
+
       let effectiveSeverity = pattern.severity;
 
       if (contextAware && isDocumentationContext(content, match.index, match[0].length)) {
