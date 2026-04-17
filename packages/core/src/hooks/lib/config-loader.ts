@@ -90,21 +90,29 @@ const CACHE_TTL_MS = 60000; // 1 minute
 // Config Paths
 // ============================================================================
 
-// Look for configs in multiple locations
+// Look for configs in multiple locations. Both paths are tried per-file
+// by loadConfig (via userOverrideOrBundled), so a user override populates
+// ONLY the files they actually drop in — other files still load from the
+// bundled package. This matters because `ensureDirectories()` creates
+// CONFIG_DIR eagerly, so the directory existing doesn't imply it has
+// real content.
 function getConfigBasePath(): string {
-  // Priority 1: TALON_DIR/config (user-installed)
-  if (existsSync(join(CONFIG_DIR))) {
-    return CONFIG_DIR;
-  }
-
-  // Priority 2: Plugin package configs (bundled)
+  // Kept for backward compatibility — new loadConfig path resolves
+  // per-file via resolveConfigFile() below.
   const bundledPath = join(dirname(__dirname), 'config');
-  if (existsSync(bundledPath)) {
-    return bundledPath;
-  }
-
-  // Fallback to CONFIG_DIR (will use defaults)
+  if (existsSync(bundledPath)) return bundledPath;
   return CONFIG_DIR;
+}
+
+// Per-file resolver: prefer user-provided override at CONFIG_DIR, fall
+// back to bundled package path. Returns an absolute path or null if
+// the file exists in neither location.
+function resolveConfigFile(relativePath: string): string | null {
+  const userPath = join(CONFIG_DIR, relativePath);
+  if (existsSync(userPath)) return userPath;
+  const bundledPath = join(dirname(__dirname), 'config', relativePath);
+  if (existsSync(bundledPath)) return bundledPath;
+  return null;
 }
 
 // ============================================================================
@@ -115,8 +123,12 @@ export function loadConfig<T>(
   configPath: string,
   defaultConfig: T
 ): T {
-  const basePath = getConfigBasePath();
-  const fullPath = join(basePath, configPath);
+  const fullPath = resolveConfigFile(configPath);
+  if (!fullPath) {
+    // Cache the default keyed on the relative path so repeated misses
+    // don't keep probing the filesystem.
+    return cacheAndReturn(configPath, defaultConfig, 0);
+  }
 
   // Check cache
   const cached = configCache.get(fullPath) as CacheEntry<T> | undefined;
@@ -134,20 +146,15 @@ export function loadConfig<T>(
     }
   }
 
-  // Try to load from file
-  if (existsSync(fullPath)) {
-    try {
-      const content = readFileSync(fullPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      const stat = statSync(fullPath);
-      return cacheAndReturn(fullPath, parsed as T, stat.mtimeMs);
-    } catch (error) {
-      console.error(`[ConfigLoader] Error loading ${configPath}, using defaults`);
-      return cacheAndReturn(fullPath, defaultConfig, 0);
-    }
+  try {
+    const content = readFileSync(fullPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    const stat = statSync(fullPath);
+    return cacheAndReturn(fullPath, parsed as T, stat.mtimeMs);
+  } catch (error) {
+    console.error(`[ConfigLoader] Error loading ${configPath}, using defaults`);
+    return cacheAndReturn(fullPath, defaultConfig, 0);
   }
-
-  return cacheAndReturn(fullPath, defaultConfig, 0);
 }
 
 function cacheAndReturn<T>(path: string, config: T, mtime: number): T {

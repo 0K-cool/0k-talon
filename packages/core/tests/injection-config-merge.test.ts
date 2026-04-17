@@ -106,6 +106,35 @@ describe('loadInjectionPatterns — merged config (Phase 1)', () => {
   });
 });
 
+describe('L4 hook wire-up — getActivePatterns()', () => {
+  it('L4 hook uses merged loader output at runtime (not stale inline array)', () => {
+    const {
+      getActivePatterns,
+      clearPatternCache,
+    } = require('../src/hooks/L4-injection-scanner');
+    clearPatternCache();
+    const active = getActivePatterns();
+    // Must include NOVA + 0din + bundled (22 inline) = well above 400
+    expect(active.length).toBeGreaterThanOrEqual(400);
+    // Bundled inline IDs must survive the merge
+    const ids = new Set(active.map((p: any) => p.id));
+    expect(ids.has('override-ignore')).toBe(true);
+    expect(ids.has('override-forget')).toBe(true);
+  });
+
+  it('L4 active patterns are compiled RegExp objects (not strings)', () => {
+    const {
+      getActivePatterns,
+      clearPatternCache,
+    } = require('../src/hooks/L4-injection-scanner');
+    clearPatternCache();
+    const active = getActivePatterns();
+    for (const p of active) {
+      expect(p.pattern instanceof RegExp).toBe(true);
+    }
+  });
+});
+
 describe('validatePatterns — category enum check', () => {
   it('drops pattern with invalid category', () => {
     const { validatePatterns } = require('../src/hooks/lib/config-loader');
