@@ -124,17 +124,18 @@ export function loadConfig<T>(
   defaultConfig: T
 ): T {
   const fullPath = resolveConfigFile(configPath);
-  if (!fullPath) {
-    // Cache the default keyed on the relative path so repeated misses
-    // don't keep probing the filesystem.
-    return cacheAndReturn(configPath, defaultConfig, 0);
-  }
+  // Cache key: resolved file path when found, relative path on miss.
+  // This lets the miss case cache a sentinel so repeated failed lookups
+  // don't re-probe the filesystem within the TTL window.
+  const cacheKey = fullPath || configPath;
 
-  // Check cache
-  const cached = configCache.get(fullPath) as CacheEntry<T> | undefined;
+  // Cache check — runs BEFORE the miss-path early return so the miss
+  // cache actually gets consulted. mtime check only applies to hits.
+  const cached = configCache.get(cacheKey) as CacheEntry<T> | undefined;
   if (cached) {
     const now = Date.now();
     if (now - cached.loadedAt < CACHE_TTL_MS) {
+      if (!fullPath) return cached.config; // miss sentinel still fresh
       try {
         const stat = statSync(fullPath);
         if (stat.mtimeMs === cached.fileMtime) {
@@ -144,6 +145,10 @@ export function loadConfig<T>(
         return cached.config;
       }
     }
+  }
+
+  if (!fullPath) {
+    return cacheAndReturn(cacheKey, defaultConfig, 0);
   }
 
   try {
@@ -395,6 +400,38 @@ const DEFAULT_MALICIOUS_PACKAGES: MaliciousPackage[] = [
 // ============================================================================
 
 /**
+ * Merge injection patterns from three sources with first-wins ID and
+ * pattern-string precedence: manual > NOVA > 0din.
+ *
+ * Exposed for test isolation — lets tests verify the collision
+ * invariant with synthetic inputs rather than mutating real JSON files.
+ */
+export function mergeInjectionPatterns(
+  manual: InjectionPattern[],
+  nova: InjectionPattern[],
+  odin: InjectionPattern[],
+): InjectionPattern[] {
+  const seenIds = new Set<string>();
+  const seenPatterns = new Set<string>();
+  const merged: InjectionPattern[] = [];
+
+  const push = (list: InjectionPattern[]) => {
+    for (const p of list) {
+      if (seenIds.has(p.id)) continue;
+      if (seenPatterns.has(p.pattern)) continue;
+      seenIds.add(p.id);
+      seenPatterns.add(p.pattern);
+      merged.push(p);
+    }
+  };
+
+  push(manual);
+  push(nova);
+  push(odin);
+  return merged;
+}
+
+/**
  * Load and merge injection patterns from three sources:
  *   1. injection/patterns.json   (manual, highest priority)
  *   2. injection/nova-translated.json (NOVA framework, auto-translated)
@@ -437,35 +474,17 @@ export function loadInjectionPatterns(): InjectionPattern[] {
     'injection/0din-translated.json'
   );
 
-  // Merge with collision resolution (manual > NOVA > 0din).
-  // Dedup on BOTH id and pattern string — 0din has multiple IDs that
-  // translate to the same regex (e.g. 5 entries share the same
-  // "encode|cipher|decrypt" alternation). ID-only dedup would load all
-  // five, costing 5x regex evaluations per scan.
-  const seenIds = new Set<string>();
-  const seenPatterns = new Set<string>();
-  const merged: InjectionPattern[] = [];
-
-  const dedupePush = (list: InjectionPattern[]) => {
-    for (const p of list) {
-      if (seenIds.has(p.id)) continue;
-      if (seenPatterns.has(p.pattern)) continue;
-      seenIds.add(p.id);
-      seenPatterns.add(p.pattern);
-      merged.push(p);
-    }
-  };
-
-  // Precedence: manual first, then NOVA, then 0din
-  dedupePush(manualPatterns);
+  // Exposed as a pure function so tests can verify the collision
+  // precedence invariant with synthetic inputs.
+  const merged = mergeInjectionPatterns(manualPatterns, novaValidated, odinValidated);
   const novaPatterns = novaValidated.filter(
-    (p) => !seenIds.has(p.id) && !seenPatterns.has(p.pattern),
+    (p) => !manualPatterns.some(m => m.id === p.id || m.pattern === p.pattern),
   );
-  dedupePush(novaPatterns);
   const odinPatterns = odinValidated.filter(
-    (p) => !seenIds.has(p.id) && !seenPatterns.has(p.pattern),
+    (p) =>
+      !manualPatterns.some(m => m.id === p.id || m.pattern === p.pattern) &&
+      !novaPatterns.some(n => n.id === p.id || n.pattern === p.pattern),
   );
-  dedupePush(odinPatterns);
 
   // Fallback to bundled defaults only if ALL sources are empty
   if (merged.length === 0) {

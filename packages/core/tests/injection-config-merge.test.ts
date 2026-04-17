@@ -80,19 +80,21 @@ describe('loadInjectionPatterns — merged config (Phase 1)', () => {
     expect(inj001?.description).toBe('Instruction override attempt');
   });
 
-  it('all NOVA patterns have nova- prefix', () => {
+  it('every NOVA pattern has non-empty description', () => {
     const patterns = loadInjectionPatterns();
     const novaPatterns = patterns.filter((p) => p.id.startsWith('nova-'));
     for (const p of novaPatterns) {
-      expect(p.id).toMatch(/^nova-/);
+      expect(p.description).toBeDefined();
+      expect(p.description.length).toBeGreaterThan(0);
     }
   });
 
-  it('all 0din patterns have 0din- prefix', () => {
+  it('every 0din pattern has non-empty description', () => {
     const patterns = loadInjectionPatterns();
     const odinPatterns = patterns.filter((p) => p.id.startsWith('0din-'));
     for (const p of odinPatterns) {
-      expect(p.id).toMatch(/^0din-/);
+      expect(p.description).toBeDefined();
+      expect(p.description.length).toBeGreaterThan(0);
     }
   });
 
@@ -132,6 +134,64 @@ describe('L4 hook wire-up — getActivePatterns()', () => {
     for (const p of active) {
       expect(p.pattern instanceof RegExp).toBe(true);
     }
+  });
+});
+
+describe('mergeInjectionPatterns — collision precedence', () => {
+  it('manual wins ID collision against NOVA and 0din', () => {
+    const { mergeInjectionPatterns } = require('../src/hooks/lib/config-loader');
+    const manual = [{
+      id: 'COLLIDE-001',
+      category: 'jailbreak',
+      severity: 'HIGH',
+      pattern: 'manual-regex',
+      description: 'manual version',
+    }];
+    const nova = [{
+      id: 'COLLIDE-001',
+      category: 'encoding',
+      severity: 'LOW',
+      pattern: 'nova-regex',
+      description: 'nova version — MUST NOT appear in merged output',
+    }];
+    const odin = [{
+      id: 'COLLIDE-001',
+      category: 'jailbreak',
+      severity: 'MEDIUM',
+      pattern: 'odin-regex',
+      description: '0din version',
+    }];
+    const merged = mergeInjectionPatterns(manual, nova, odin);
+    const collided = merged.filter((p: any) => p.id === 'COLLIDE-001');
+    expect(collided.length).toBe(1);
+    expect(collided[0].description).toBe('manual version');
+    expect(collided[0].pattern).toBe('manual-regex');
+  });
+
+  it('NOVA wins when manual is absent and 0din collides by id', () => {
+    const { mergeInjectionPatterns } = require('../src/hooks/lib/config-loader');
+    const nova = [{ id: 'X', pattern: 'nova-p', severity: 'HIGH', category: 'jailbreak', description: 'nova' }];
+    const odin = [{ id: 'X', pattern: 'odin-p', severity: 'LOW', category: 'encoding', description: 'odin' }];
+    const merged = mergeInjectionPatterns([], nova, odin);
+    expect(merged.length).toBe(1);
+    expect(merged[0].description).toBe('nova');
+  });
+
+  it('pattern-string collision also honors precedence', () => {
+    const { mergeInjectionPatterns } = require('../src/hooks/lib/config-loader');
+    // Different IDs but same regex — the later source must drop.
+    const nova = [{ id: 'N', pattern: 'SHARED', severity: 'HIGH', category: 'jailbreak', description: 'nova' }];
+    const odin = [{ id: 'O', pattern: 'SHARED', severity: 'LOW', category: 'encoding', description: 'odin' }];
+    const merged = mergeInjectionPatterns([], nova, odin);
+    expect(merged.length).toBe(1);
+    expect(merged[0].id).toBe('N');
+  });
+
+  it('all-empty input returns empty array (not undefined)', () => {
+    const { mergeInjectionPatterns } = require('../src/hooks/lib/config-loader');
+    const merged = mergeInjectionPatterns([], [], []);
+    expect(Array.isArray(merged)).toBe(true);
+    expect(merged.length).toBe(0);
   });
 });
 
