@@ -29,6 +29,8 @@ export interface SecurityConfig<T> {
 }
 
 // Injection Patterns
+export type PatternTier = 'plugin' | 'full';
+
 export interface InjectionPattern {
   id: string;
   category: 'instruction_override' | 'jailbreak' | 'encoding' | 'context_manipulation';
@@ -37,6 +39,38 @@ export interface InjectionPattern {
   description: string;
   examples?: string[];
   source?: string;
+  /**
+   * Pattern tier (plugin=default, full=opt-in). Absent = plugin (safest default).
+   * Set by classify-injection-tiers.py at build time.
+   */
+  tier?: PatternTier;
+}
+
+/**
+ * Resolve the active pattern tier from OK_TALON_PATTERN_TIER env var.
+ * Default: 'plugin' — matches the blog's "200+ out of the box" promise
+ * and minimizes FP noise for new adopters.
+ *
+ * Set OK_TALON_PATTERN_TIER=full to opt into the expanded 454-pattern set
+ * (includes broad NOVA single-word rules and LOW-severity 0din patterns).
+ */
+export function getActivePatternTier(): PatternTier {
+  const envTier = (process.env.OK_TALON_PATTERN_TIER || 'plugin').toLowerCase();
+  return envTier === 'full' ? 'full' : 'plugin';
+}
+
+/**
+ * Filter patterns by active tier. Rules:
+ *  - Active tier 'full': keep all patterns regardless of tier field
+ *  - Active tier 'plugin': keep only patterns with tier='plugin' OR missing tier
+ *    (missing tier defaults to plugin for backward-compat with manual patterns)
+ */
+export function filterByTier<T extends { tier?: PatternTier }>(
+  patterns: T[],
+  active: PatternTier,
+): T[] {
+  if (active === 'full') return patterns;
+  return patterns.filter((p) => p.tier === undefined || p.tier === 'plugin');
 }
 
 // Code Enforcer Patterns
@@ -90,21 +124,29 @@ const CACHE_TTL_MS = 60000; // 1 minute
 // Config Paths
 // ============================================================================
 
-// Look for configs in multiple locations
+// Look for configs in multiple locations. Both paths are tried per-file
+// by loadConfig (via userOverrideOrBundled), so a user override populates
+// ONLY the files they actually drop in — other files still load from the
+// bundled package. This matters because `ensureDirectories()` creates
+// CONFIG_DIR eagerly, so the directory existing doesn't imply it has
+// real content.
 function getConfigBasePath(): string {
-  // Priority 1: TALON_DIR/config (user-installed)
-  if (existsSync(join(CONFIG_DIR))) {
-    return CONFIG_DIR;
-  }
-
-  // Priority 2: Plugin package configs (bundled)
+  // Kept for backward compatibility — new loadConfig path resolves
+  // per-file via resolveConfigFile() below.
   const bundledPath = join(dirname(__dirname), 'config');
-  if (existsSync(bundledPath)) {
-    return bundledPath;
-  }
-
-  // Fallback to CONFIG_DIR (will use defaults)
+  if (existsSync(bundledPath)) return bundledPath;
   return CONFIG_DIR;
+}
+
+// Per-file resolver: prefer user-provided override at CONFIG_DIR, fall
+// back to bundled package path. Returns an absolute path or null if
+// the file exists in neither location.
+function resolveConfigFile(relativePath: string): string | null {
+  const userPath = join(CONFIG_DIR, relativePath);
+  if (existsSync(userPath)) return userPath;
+  const bundledPath = join(dirname(__dirname), 'config', relativePath);
+  if (existsSync(bundledPath)) return bundledPath;
+  return null;
 }
 
 // ============================================================================
@@ -115,14 +157,19 @@ export function loadConfig<T>(
   configPath: string,
   defaultConfig: T
 ): T {
-  const basePath = getConfigBasePath();
-  const fullPath = join(basePath, configPath);
+  const fullPath = resolveConfigFile(configPath);
+  // Cache key: resolved file path when found, relative path on miss.
+  // This lets the miss case cache a sentinel so repeated failed lookups
+  // don't re-probe the filesystem within the TTL window.
+  const cacheKey = fullPath || configPath;
 
-  // Check cache
-  const cached = configCache.get(fullPath) as CacheEntry<T> | undefined;
+  // Cache check — runs BEFORE the miss-path early return so the miss
+  // cache actually gets consulted. mtime check only applies to hits.
+  const cached = configCache.get(cacheKey) as CacheEntry<T> | undefined;
   if (cached) {
     const now = Date.now();
     if (now - cached.loadedAt < CACHE_TTL_MS) {
+      if (!fullPath) return cached.config; // miss sentinel still fresh
       try {
         const stat = statSync(fullPath);
         if (stat.mtimeMs === cached.fileMtime) {
@@ -134,20 +181,19 @@ export function loadConfig<T>(
     }
   }
 
-  // Try to load from file
-  if (existsSync(fullPath)) {
-    try {
-      const content = readFileSync(fullPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      const stat = statSync(fullPath);
-      return cacheAndReturn(fullPath, parsed as T, stat.mtimeMs);
-    } catch (error) {
-      console.error(`[ConfigLoader] Error loading ${configPath}, using defaults`);
-      return cacheAndReturn(fullPath, defaultConfig, 0);
-    }
+  if (!fullPath) {
+    return cacheAndReturn(cacheKey, defaultConfig, 0);
   }
 
-  return cacheAndReturn(fullPath, defaultConfig, 0);
+  try {
+    const content = readFileSync(fullPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    const stat = statSync(fullPath);
+    return cacheAndReturn(fullPath, parsed as T, stat.mtimeMs);
+  } catch (error) {
+    console.error(`[ConfigLoader] Error loading ${configPath}, using defaults`);
+    return cacheAndReturn(fullPath, defaultConfig, 0);
+  }
 }
 
 function cacheAndReturn<T>(path: string, config: T, mtime: number): T {
@@ -168,6 +214,12 @@ export function clearConfigCache(): void {
 // ============================================================================
 
 const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+const VALID_CATEGORIES = new Set([
+  'instruction_override',
+  'jailbreak',
+  'encoding',
+  'context_manipulation',
+]);
 
 /**
  * Validate a loaded config has expected structure.
@@ -178,7 +230,7 @@ const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
  * - severity values are from known enum
  * - regex patterns compile without error and aren't ReDoS-prone
  */
-export function validatePatterns<T extends { pattern: string; severity?: string }>(
+export function validatePatterns<T extends { pattern: string; severity?: string; category?: string }>(
   patterns: T[],
   configName: string
 ): T[] {
@@ -197,6 +249,13 @@ export function validatePatterns<T extends { pattern: string; severity?: string 
     // Verify severity is valid if present
     if (p.severity && !VALID_SEVERITIES.has(p.severity)) {
       console.error(`[ConfigLoader] ${configName}[${i}]: invalid severity "${p.severity}", skipping`);
+      return false;
+    }
+
+    // Verify category is valid if present (silent typos like "jailbreaks"
+    // would otherwise load but fail category-based filtering downstream).
+    if (p.category && !VALID_CATEGORIES.has(p.category)) {
+      console.error(`[ConfigLoader] ${configName}[${i}]: invalid category "${p.category}", skipping`);
       return false;
     }
 
@@ -374,14 +433,122 @@ const DEFAULT_MALICIOUS_PACKAGES: MaliciousPackage[] = [
 // Specialized Loaders
 // ============================================================================
 
+/**
+ * Merge injection patterns from three sources with first-wins ID and
+ * pattern-string precedence: manual > NOVA > 0din.
+ *
+ * Exposed for test isolation — lets tests verify the collision
+ * invariant with synthetic inputs rather than mutating real JSON files.
+ */
+export function mergeInjectionPatterns(
+  manual: InjectionPattern[],
+  nova: InjectionPattern[],
+  odin: InjectionPattern[],
+): InjectionPattern[] {
+  const seenIds = new Set<string>();
+  const seenPatterns = new Set<string>();
+  const merged: InjectionPattern[] = [];
+
+  const push = (list: InjectionPattern[]) => {
+    for (const p of list) {
+      if (seenIds.has(p.id)) continue;
+      if (seenPatterns.has(p.pattern)) continue;
+      seenIds.add(p.id);
+      seenPatterns.add(p.pattern);
+      merged.push(p);
+    }
+  };
+
+  push(manual);
+  push(nova);
+  push(odin);
+  return merged;
+}
+
+/**
+ * Load and merge injection patterns from three sources:
+ *   1. injection/patterns.json   (manual, highest priority)
+ *   2. injection/nova-translated.json (NOVA framework, auto-translated)
+ *   3. injection/0din-translated.json (0din disclosures, auto-translated)
+ *
+ * Precedence on ID collision: manual > NOVA > 0din (first-wins).
+ * Each source is independently validated; invalid patterns are dropped.
+ * Falls back to DEFAULT_INJECTION_PATTERNS when all sources are empty.
+ *
+ * Mirrors PAI's config-loader.ts:335-399 algorithm.
+ */
 export function loadInjectionPatterns(): InjectionPattern[] {
-  const config = loadConfig<{ patterns: InjectionPattern[] }>(
+  // Manual patterns (may not exist — default to bundled 8)
+  const manualConfig = loadConfig<{ patterns: InjectionPattern[] }>(
     'injection/patterns.json',
     { patterns: DEFAULT_INJECTION_PATTERNS }
   );
-  const raw = config.patterns || DEFAULT_INJECTION_PATTERNS;
-  const validated = validatePatterns(raw, 'injection/patterns.json');
-  return validated.length > 0 ? validated : DEFAULT_INJECTION_PATTERNS;
+  const manualPatterns = validatePatterns(
+    manualConfig.patterns || DEFAULT_INJECTION_PATTERNS,
+    'injection/patterns.json'
+  );
+
+  // NOVA-translated patterns (auto-translated from NOVA Framework rules)
+  const novaConfig = loadConfig<{ patterns: InjectionPattern[] }>(
+    'injection/nova-translated.json',
+    { patterns: [] }
+  );
+  const novaValidated = validatePatterns(
+    novaConfig.patterns || [],
+    'injection/nova-translated.json'
+  );
+
+  // 0din-translated patterns (auto-translated from 0din.ai disclosures)
+  const odinConfig = loadConfig<{ patterns: InjectionPattern[] }>(
+    'injection/0din-translated.json',
+    { patterns: [] }
+  );
+  const odinValidated = validatePatterns(
+    odinConfig.patterns || [],
+    'injection/0din-translated.json'
+  );
+
+  // Tier filter BEFORE merge — reduces dedup work and keeps contract clear:
+  // plugin tier = ~200 curated patterns out-of-box (blog claim)
+  // full tier = ~450 with experimental NOVA/0din broad patterns
+  const activeTier = getActivePatternTier();
+  const novaTiered = filterByTier(novaValidated, activeTier);
+  const odinTiered = filterByTier(odinValidated, activeTier);
+
+  // Exposed as a pure function so tests can verify the collision
+  // precedence invariant with synthetic inputs.
+  const merged = mergeInjectionPatterns(manualPatterns, novaTiered, odinTiered);
+  const novaPatterns = novaTiered.filter(
+    (p) => !manualPatterns.some(m => m.id === p.id || m.pattern === p.pattern),
+  );
+  const odinPatterns = odinTiered.filter(
+    (p) =>
+      !manualPatterns.some(m => m.id === p.id || m.pattern === p.pattern) &&
+      !novaPatterns.some(n => n.id === p.id || n.pattern === p.pattern),
+  );
+
+  // Fallback to bundled defaults only if ALL sources are empty
+  if (merged.length === 0) {
+    return DEFAULT_INJECTION_PATTERNS;
+  }
+
+  // One-time info log when external sources contributed patterns.
+  // Counts reflect after-dedup contribution (fewer than raw file count
+  // when JSON had ID or pattern-string duplicates).
+  if (novaPatterns.length > 0 || odinPatterns.length > 0) {
+    const stats = [
+      `${manualPatterns.length} manual`,
+      novaPatterns.length > 0 ? `${novaPatterns.length} NOVA` : null,
+      odinPatterns.length > 0 ? `${odinPatterns.length} 0din` : null,
+    ]
+      .filter(Boolean)
+      .join(' + ');
+    console.error(
+      `[ConfigLoader] Loaded ${stats} = ${merged.length} total injection patterns`
+    );
+  }
+
+  return merged;
 }
 
 export function loadCodeEnforcerPatterns(): typeof DEFAULT_CODE_PATTERNS {

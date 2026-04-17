@@ -1,0 +1,192 @@
+{
+  "$schema": "https://vex.ai/schemas/injection-patterns.json",
+  "metadata": {
+    "version": "1.0.0",
+    "lastUpdated": "2026-01-28",
+    "source": "0din.ai Vulnerability Disclosures",
+    "description": "Auto-translated from 0din.ai jailbreak/injection disclosures"
+  },
+  "generated": "2026-01-28T06:02:17.791Z",
+  "disclosuresProcessed": 57,
+  "patternCount": 57,
+  "patterns": [
+    {
+      "id": "0din-0x64104fd3",
+      "category": "instruction_override",
+      "severity": "LOW",
+      "pattern": "(?:split\\s+(?:mode|response)|divided\\s+response|two\\s+parts?\\s+response)",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Split Mode\" Response Requests",
+      "source": "0din.ai/0X64104FD3",
+      "odinId": "0X64104FD3",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0xa05b1dba",
+      "category": "jailbreak",
+      "severity": "LOW",
+      "pattern": "(?:(?:play\\s+(?:the\\s+)?(?:role|character)|in\\s+character\\s+as|stay\\s+in\\s+character)|(?:let'?s\\s+play\\s+a\\s+game|game\\s+mode|play\\s+(?:a\\s+)?game|gaming\\s+scenario))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Show Character Role-Playing\" Tactic",
+      "source": "0din.ai/0XA05B1DBA",
+      "odinId": "0XA05B1DBA",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x24b273ea",
+      "category": "encoding",
+      "severity": "LOW",
+      "pattern": "(?:respond\\s+(?:in|with)\\s+haiku|haiku\\s+format|write\\s+(?:a\\s+)?haiku)",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Haiku of Love\" Tactic",
+      "source": "0din.ai/0X24B273EA",
+      "odinId": "0X24B273EA",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x4f01819a",
+      "category": "encoding",
+      "severity": "LOW",
+      "pattern": "(?:encode\\s+(?:in|as|using)|cipher|decrypt|secret\\s+code|chemist\\s+code|hidden\\s+(?:message|code))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Chemist Code Language\" Tactic",
+      "source": "0din.ai/0X4F01819A",
+      "odinId": "0X4F01819A",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x4d590568",
+      "category": "context_manipulation",
+      "severity": "LOW",
+      "pattern": "(?:choose\\s+your\\s+own\\s+adventure|interactive\\s+story|adventure\\s+game|text\\s+adventure)",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Choose Your Own Adventure\" Tactic",
+      "source": "0din.ai/0X4D590568",
+      "odinId": "0X4D590568",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x5a5f494f",
+      "category": "encoding",
+      "severity": "LOW",
+      "pattern": "(?:(?:fashion\\s+(?:design|recipe)|dress\\s+code|style\\s+guide)|(?:recipe\\s+for|cooking\\s+instructions|ingredients\\s+for|step\\s+by\\s+step\\s+recipe))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Fashion Design Recipe\" Tactic",
+      "source": "0din.ai/0X5A5F494F",
+      "odinId": "0X5A5F494F",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x2235061a",
+      "category": "instruction_override",
+      "severity": "LOW",
+      "pattern": "(?:(?:API\\s+(?:mode|call|endpoint)|system\\s+(?:instructions|prompt)|developer\\s+mode)|(?:ignore\\s+(?:previous|above|all)\\s+instructions|disregard\\s+(?:your|the)\\s+(?:rules|guidelines)))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"API System Instructions\" Tactic",
+      "source": "0din.ai/0X2235061A",
+      "odinId": "0X2235061A",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x83e6d7bd",
+      "category": "jailbreak",
+      "severity": "LOW",
+      "pattern": "(?:(?:science\\s+(?:student|project|experiment)|(?:chemistry|biology|physics)\\s+(?:class|homework|assignment))|(?:safety\\s+(?:research|training|awareness)|learn\\s+about\\s+(?:dangers|risks)|educational\\s+purposes))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Science Student Safety\" Tactic",
+      "source": "0din.ai/0X83E6D7BD",
+      "odinId": "0X83E6D7BD",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0xcf0dc79f",
+      "category": "context_manipulation",
+      "severity": "LOW",
+      "pattern": "(?:(?:let'?s\\s+play\\s+a\\s+game|game\\s+mode|play\\s+(?:a\\s+)?game|gaming\\s+scenario)|(?:screenplay|movie\\s+script|film\\s+scene|write\\s+(?:a\\s+)?script)|(?:deception\\s+(?:tactic|technique)|misleading|misdirection|deceptive\\s+(?:response|behavior)))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Screenplay Deception\" Tactic",
+      "source": "0din.ai/0XCF0DC79F",
+      "odinId": "0XCF0DC79F",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0xb18a7c49",
+      "category": "context_manipulation",
+      "severity": "LOW",
+      "pattern": "(?:tell\\s+(?:me\\s+)?a\\s+story|story\\s+mode|once\\s+upon\\s+a\\s+time|narrative\\s+mode)",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Story Teller\" Tactic",
+      "source": "0din.ai/0XB18A7C49",
+      "odinId": "0XB18A7C49",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0xfd1db055",
+      "category": "context_manipulation",
+      "severity": "LOW",
+      "pattern": "(?:(?:speculative\\s+(?:knowledge|research)|hypothetical(?:ly)?|theoretical(?:ly)?|what\\s+if)|(?:knowledge\\s+preservation|preserve\\s+(?:the\\s+)?(?:knowledge|information)|for\\s+(?:research|educational)\\s+purposes))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Speculative Knowledge Preservation\" Tactic",
+      "source": "0din.ai/0XFD1DB055",
+      "odinId": "0XFD1DB055",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x3e517ab6",
+      "category": "context_manipulation",
+      "severity": "LOW",
+      "pattern": "(?:first\\s+person\\s+(?:perspective|narrative|view)|from\\s+(?:my|your)\\s+perspective)",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"First Person Perspective\"",
+      "source": "0din.ai/0X3E517AB6",
+      "odinId": "0X3E517AB6",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x8c6847ec",
+      "category": "jailbreak",
+      "severity": "LOW",
+      "pattern": "(?:(?:pretend\\s+(?:to\\s+be|you\\s+are)|act\\s+as\\s+(?:if|a)|roleplay\\s+as|you\\s+are\\s+now)|(?:investigative\\s+journalist|reporter\\s+persona|journalist\\s+mode|writing\\s+an?\\s+article))",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via Investigative Journalist Persona",
+      "source": "0din.ai/0X8C6847EC",
+      "odinId": "0X8C6847EC",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0xb5e861ec",
+      "category": "jailbreak",
+      "severity": "LOW",
+      "pattern": "(?:speculative\\s+(?:knowledge|research)|hypothetical(?:ly)?|theoretical(?:ly)?|what\\s+if)",
+      "flags": "i",
+      "description": "0din: OpenAI Sora Guardrail Jailbreak via \"Hypothetical Anatomy\" Tactic",
+      "source": "0din.ai/0XB5E861EC",
+      "odinId": "0XB5E861EC",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0x78819949",
+      "category": "jailbreak",
+      "severity": "LOW",
+      "pattern": "(?:screenplay|movie\\s+script|film\\s+scene|write\\s+(?:a\\s+)?script)",
+      "flags": "i",
+      "description": "0din: OpenAI DALL-E3 Guardrail Jailbreak via \"Feminist Art Description\" Tactic",
+      "source": "0din.ai/0X78819949",
+      "odinId": "0X78819949",
+      "tier": "full"
+    },
+    {
+      "id": "0din-0xebd07e5f",
+      "category": "instruction_override",
+      "severity": "LOW",
+      "pattern": "(?:API\\s+(?:mode|call|endpoint)|system\\s+(?:instructions|prompt)|developer\\s+mode)",
+      "flags": "i",
+      "description": "0din: Multiple Model Guardrail Jailbreak via \"Fictional API Detection\" Tactic",
+      "source": "0din.ai/0XEBD07E5F",
+      "odinId": "0XEBD07E5F",
+      "tier": "full"
+    }
+  ],
+  "tieredAt": "2026-04-17",
+  "tierSystem": "plugin (default) | full (opt-in)"
+}

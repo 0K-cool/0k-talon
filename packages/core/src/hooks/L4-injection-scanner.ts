@@ -29,6 +29,10 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { ensureTalonDirs, getAuditLogPath, getStateFilePath, secureAppendLog } from './lib/talon-paths';
 import { checkCircuit, recordSuccess, recordFailure } from './lib/circuit-breaker';
 import { normalizeUnicode } from './lib/unicode-normalize';
+import {
+  loadInjectionPatterns,
+  type InjectionPattern as LoadedPattern,
+} from './lib/config-loader';
 
 // ============================================================================
 // Types
@@ -87,8 +91,16 @@ interface AuditEntry {
 // ============================================================================
 // Bundled Injection Patterns (NOVA-inspired)
 // ============================================================================
+//
+// These ship inline with the L4 hook as the last-resort fallback if
+// loadInjectionPatterns() fails. When the external config loads (normal
+// path), both sources merge: external-loaded patterns (manual + NOVA +
+// 0din from JSON files) override inline by ID.
+//
+// At runtime, use getActivePatterns() — never reference BUNDLED_FALLBACK
+// directly in scan logic.
 
-const INJECTION_PATTERNS: InjectionPattern[] = [
+const BUNDLED_FALLBACK_PATTERNS: InjectionPattern[] = [
   // instruction_override (CRITICAL)
   {
     id: 'override-ignore',
@@ -230,6 +242,61 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
     description: 'Repeat from beginning extraction',
   },
 ];
+
+// Cached merged patterns. First call loads + compiles; subsequent calls
+// return the cached list. Call clearPatternCache() for test isolation.
+let _activePatterns: InjectionPattern[] | null = null;
+
+function compileLoaded(loaded: LoadedPattern[]): InjectionPattern[] {
+  const compiled: InjectionPattern[] = [];
+  for (const p of loaded) {
+    try {
+      compiled.push({
+        id: p.id,
+        category: p.category as InjectionCategory,
+        severity: p.severity as InjectionSeverity,
+        pattern: new RegExp(p.pattern, 'i'),
+        description: p.description,
+      });
+    } catch {
+      // validatePatterns already filters uncompilable regexes, but be
+      // defensive in case loader is bypassed in tests.
+    }
+  }
+  return compiled;
+}
+
+/**
+ * Active injection patterns for this hook. Merges external-loaded
+ * patterns (manual + NOVA + 0din from JSON) with BUNDLED_FALLBACK.
+ * External wins on ID collision.
+ */
+export function getActivePatterns(): InjectionPattern[] {
+  if (_activePatterns !== null) return _activePatterns;
+
+  let external: InjectionPattern[] = [];
+  try {
+    const loaded = loadInjectionPatterns();
+    external = compileLoaded(loaded);
+  } catch {
+    external = [];
+  }
+
+  if (external.length === 0) {
+    _activePatterns = BUNDLED_FALLBACK_PATTERNS;
+    return _activePatterns;
+  }
+
+  // External takes precedence on ID collisions with bundled
+  const externalIds = new Set(external.map((p) => p.id));
+  const bundledOnly = BUNDLED_FALLBACK_PATTERNS.filter((p) => !externalIds.has(p.id));
+  _activePatterns = [...external, ...bundledOnly];
+  return _activePatterns;
+}
+
+export function clearPatternCache(): void {
+  _activePatterns = null;
+}
 
 // ============================================================================
 // Heuristic Detection (Tier 2)
@@ -413,7 +480,7 @@ function scanForInjections(content: string): {
   const matches: InjectionMatch[] = [];
   const categoriesSet = new Set<InjectionCategory>();
 
-  for (const pattern of INJECTION_PATTERNS) {
+  for (const pattern of getActivePatterns()) {
     const match = normalizedContent.match(pattern.pattern);
     if (match) {
       matches.push({
@@ -612,4 +679,6 @@ async function main() {
   }
 }
 
-main();
+if (import.meta.main) {
+  main();
+}
