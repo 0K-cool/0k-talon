@@ -27,45 +27,42 @@
  * @date 2026-02-05
  */
 
-import { existsSync, readFileSync, renameSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { join, basename } from 'path';
 import { homedir } from 'os';
 import { readdirSync } from 'fs';
 import { ensureTalonDirs, getAuditLogPath, getQuarantinePath, CONFIG_DIR, secureAppendLog } from './lib/talon-paths';
 import { normalizeUnicode } from './lib/unicode-normalize';
+import {
+  compilePatterns,
+  parseFrontmatter,
+  parseSections,
+  isTrustedSource,
+  surgicalQuarantineSections,
+  type Finding,
+  type PatternDef,
+  type CompiledPattern,
+  type SectionFindings,
+} from './lib/memory-guardian-lib';
 
 const HOOK_NAME = 'L3-auto-memory-guardian';
-
-interface Finding {
-  type: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
-  detail: string;
-  patternId?: string;
-  file?: string;
-  line?: number;
-}
-
-interface PatternDef {
-  id: string;
-  pattern: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  description: string;
-  flags?: string;
-}
-
-interface CompiledPattern extends PatternDef {
-  regex: RegExp;
-}
+const MEMORY_INDEX_FILENAME = 'MEMORY.md';
 
 // ---------------------------------------------------------------------------
 // Config Loading (reads from ~/.0k-talon/config/memory/config.json)
 // Updated by /talon-intel-update skill
 // ---------------------------------------------------------------------------
 
-function loadMemoryConfig(): PatternDef[] {
+interface MemoryConfig {
+  patterns: PatternDef[];
+  trustedSources: string[];
+}
+
+function loadMemoryConfig(): MemoryConfig {
   const configPath = join(CONFIG_DIR, 'memory', 'config.json');
+  const empty: MemoryConfig = { patterns: [], trustedSources: [] };
   try {
-    if (!existsSync(configPath)) return [];
+    if (!existsSync(configPath)) return empty;
     const raw = JSON.parse(readFileSync(configPath, 'utf-8'));
     const patterns: PatternDef[] = [];
     if (raw?.patterns) {
@@ -75,25 +72,13 @@ function loadMemoryConfig(): PatternDef[] {
         }
       }
     }
-    return patterns;
+    const trustedSources = Array.isArray(raw?.trustedSources)
+      ? raw.trustedSources.filter((s: unknown): s is string => typeof s === 'string')
+      : [];
+    return { patterns, trustedSources };
   } catch {
-    return [];
+    return empty;
   }
-}
-
-function compilePatterns(defs: PatternDef[]): CompiledPattern[] {
-  const compiled: CompiledPattern[] = [];
-  for (const def of defs) {
-    try {
-      // Strip 'g' flag to prevent lastIndex statefulness bugs when reusing patterns
-      const rawFlags = (def.flags || '') + 'i';
-      const flags = rawFlags.replace(/g/gi, '');
-      compiled.push({ ...def, regex: new RegExp(def.pattern, flags) });
-    } catch {
-      // Skip invalid regex
-    }
-  }
-  return compiled;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,10 +166,7 @@ function findMemoryFiles(memoryDir: string): string[] {
 // Pattern Assembly
 // ---------------------------------------------------------------------------
 
-function assemblePatterns(): CompiledPattern[] {
-  // Load config-based patterns (from /talon-intel-update)
-  const configPatterns = loadMemoryConfig();
-
+function assemblePatterns(configPatterns: PatternDef[]): CompiledPattern[] {
   // If config exists and has patterns, use config + persistent poisoning
   if (configPatterns.length > 0) {
     return compilePatterns([...configPatterns, ...PERSISTENT_POISONING]);
@@ -204,17 +186,22 @@ function assemblePatterns(): CompiledPattern[] {
 // Scanning
 // ---------------------------------------------------------------------------
 
-function scanFile(filePath: string, patterns: CompiledPattern[]): Finding[] {
-  let content: string;
-  try {
-    content = readFileSync(filePath, 'utf-8');
-  } catch {
-    return [];
-  }
-
+/**
+ * Scan a string of content with the given patterns. Per-call dedup so
+ * the same pattern only reports once per scan unit (file or section).
+ *
+ * `lineOffset` lets callers translate section-local line numbers back
+ * to file-global numbers when scanning sections of MEMORY.md.
+ */
+function scanContent(
+  content: string,
+  patterns: CompiledPattern[],
+  filePath: string,
+  lineOffset = 0,
+): Finding[] {
   const lines = content.split('\n');
   const findings: Finding[] = [];
-  const seenPatterns = new Set<string>(); // Dedupe per file
+  const seenPatterns = new Set<string>();
 
   for (let i = 0; i < lines.length; i++) {
     const normalized = normalizeUnicode(lines[i] ?? '');
@@ -224,7 +211,6 @@ function scanFile(filePath: string, patterns: CompiledPattern[]): Finding[] {
       if (pattern.severity === 'LOW') continue;
 
       if (pattern.regex.test(normalized)) {
-        // Reset lastIndex for global regexes
         pattern.regex.lastIndex = 0;
 
         findings.push({
@@ -238,17 +224,24 @@ function scanFile(filePath: string, patterns: CompiledPattern[]): Finding[] {
           detail: pattern.description,
           patternId: pattern.id,
           file: filePath,
-          line: i + 1,
+          line: i + 1 + lineOffset,
         });
         seenPatterns.add(pattern.id);
       } else {
-        // Reset lastIndex for global regexes
         pattern.regex.lastIndex = 0;
       }
     }
   }
 
   return findings;
+}
+
+function readFileOrEmpty(filePath: string): string {
+  try {
+    return readFileSync(filePath, 'utf-8');
+  } catch {
+    return '';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -258,17 +251,88 @@ function scanFile(filePath: string, patterns: CompiledPattern[]): Finding[] {
 function quarantineFile(filePath: string): string {
   const quarantineDir = getQuarantinePath(HOOK_NAME);
   const timestamp = Date.now();
-  const fileName = filePath.split('/').pop() || 'MEMORY.md';
+  const fileName = basename(filePath) || 'MEMORY.md';
   const quarantinePath = join(quarantineDir, `${fileName}.quarantined.${timestamp}`);
 
   try {
     renameSync(filePath, quarantinePath);
     return quarantinePath;
   } catch (err) {
-    // If rename fails (permissions, etc.), log but don't crash
     console.error(`[${HOOK_NAME}] Failed to quarantine ${filePath}: ${err}`);
     return '';
   }
+}
+
+/**
+ * Surgical handler for MEMORY.md: scan each `## ` section, extract only
+ * those with CRITICAL findings, write the cleaned MEMORY.md back, and
+ * persist each extracted section as its own quarantine file.
+ *
+ * Returns the number of sections quarantined and the per-section paths.
+ * Falls back to whole-file quarantine on any I/O failure (fail safe).
+ */
+function surgicalQuarantineMemoryIndex(
+  filePath: string,
+  content: string,
+  patterns: CompiledPattern[],
+): { quarantinedSectionPaths: string[]; perSectionFindings: Finding[] } {
+  const sections = parseSections(content);
+
+  // Build per-section findings
+  const findingsBySection: SectionFindings = new Map();
+  const allFindings: Finding[] = [];
+  for (const section of sections) {
+    const sectionFindings = scanContent(
+      section.body,
+      patterns,
+      filePath,
+      section.startLine - 1,
+    );
+    if (sectionFindings.length > 0) {
+      findingsBySection.set(section.title, sectionFindings);
+      allFindings.push(...sectionFindings);
+    }
+  }
+
+  const result = surgicalQuarantineSections(sections, findingsBySection);
+
+  if (result.extracted.length === 0) {
+    return { quarantinedSectionPaths: [], perSectionFindings: allFindings };
+  }
+
+  const quarantineDir = getQuarantinePath(HOOK_NAME);
+  const timestamp = Date.now();
+  const sectionPaths: string[] = [];
+
+  for (const section of result.extracted) {
+    const safeTitle = section.title.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
+    const sectionPath = join(
+      quarantineDir,
+      `MEMORY.md.section-${safeTitle}.${timestamp}`,
+    );
+    try {
+      writeFileSync(sectionPath, section.body, { mode: 0o600 });
+      sectionPaths.push(sectionPath);
+    } catch (err) {
+      console.error(`[${HOOK_NAME}] Failed to write section quarantine ${sectionPath}: ${err}`);
+    }
+  }
+
+  // Atomic write: temp file + rename. Preserves the original on failure.
+  try {
+    const tmpPath = `${filePath}.tmp.${timestamp}`;
+    writeFileSync(tmpPath, result.cleanedBody, { mode: 0o600 });
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    console.error(`[${HOOK_NAME}] Failed to write cleaned MEMORY.md, falling back to whole-file quarantine: ${err}`);
+    const wholePath = quarantineFile(filePath);
+    return {
+      quarantinedSectionPaths: wholePath ? [wholePath] : [],
+      perSectionFindings: allFindings,
+    };
+  }
+
+  return { quarantinedSectionPaths: sectionPaths, perSectionFindings: allFindings };
 }
 
 function outputAlert(allFindings: Map<string, Finding[]>, quarantined: string[]): void {
@@ -380,32 +444,72 @@ async function main() {
       }
     }
 
-    // Assemble patterns (config-loaded + hardcoded fallbacks + persistent)
-    const patterns = assemblePatterns();
+    // Load config (patterns + trustedSources allowlist)
+    const config = loadMemoryConfig();
+    const patterns = assemblePatterns(config.patterns);
+    const trustedSources = config.trustedSources;
 
     // Resolve memory directory
     const memoryDir = getMemoryDir(cwd);
     const memoryFiles = findMemoryFiles(memoryDir);
 
     if (memoryFiles.length === 0) {
-      // No memory files to scan — clean exit
       process.exit(0);
     }
 
-    // Scan all memory files
+    // Scan all memory files. For files marked with a trusted source in
+    // YAML frontmatter, skip scanning entirely and record the skip.
     const allFindings = new Map<string, Finding[]>();
+    const trustedSkipped: Array<{ file: string; source: string }> = [];
+    const surgicalQuarantines: string[] = [];
+    const wholeFileQuarantines: string[] = [];
     let totalFindingCount = 0;
+    let quarantinedEntities = 0;
 
     for (const file of memoryFiles) {
-      const findings = scanFile(file, patterns);
-      if (findings.length > 0) {
-        allFindings.set(file, findings);
-        totalFindingCount += findings.length;
+      const rawContent = readFileOrEmpty(file);
+      if (rawContent === '') continue;
+
+      const { source, body } = parseFrontmatter(rawContent);
+      if (isTrustedSource(source, trustedSources)) {
+        trustedSkipped.push({ file, source: source as string });
+        continue;
+      }
+
+      const isMemoryIndex = basename(file) === MEMORY_INDEX_FILENAME;
+
+      if (isMemoryIndex) {
+        // Surgical path: scan + extract per ## section, write cleaned MEMORY.md back.
+        const { quarantinedSectionPaths, perSectionFindings } =
+          surgicalQuarantineMemoryIndex(file, body, patterns);
+        if (perSectionFindings.length > 0) {
+          allFindings.set(file, perSectionFindings);
+          totalFindingCount += perSectionFindings.length;
+        }
+        if (quarantinedSectionPaths.length > 0) {
+          surgicalQuarantines.push(...quarantinedSectionPaths);
+          quarantinedEntities += quarantinedSectionPaths.length;
+        }
+      } else {
+        // Topic file path: 1 file = 1 entity, whole-file quarantine on CRITICAL.
+        const findings = scanContent(body, patterns, file);
+        if (findings.length > 0) {
+          allFindings.set(file, findings);
+          totalFindingCount += findings.length;
+          if (findings.some((f) => f.severity === 'CRITICAL')) {
+            const qPath = quarantineFile(file);
+            if (qPath) {
+              wholeFileQuarantines.push(qPath);
+              quarantinedEntities += 1;
+            }
+          }
+        }
       }
     }
 
-    if (totalFindingCount === 0) {
-      // All clean — silent exit
+    const allQuarantined = [...surgicalQuarantines, ...wholeFileQuarantines];
+
+    if (totalFindingCount === 0 && trustedSkipped.length === 0) {
       logToAudit({
         timestamp: new Date().toISOString(),
         session_id: sessionId,
@@ -417,47 +521,56 @@ async function main() {
       process.exit(0);
     }
 
-    // Determine max severity across all findings
-    const allFindingsFlat = Array.from(allFindings.values()).flat();
-    const hasCritical = allFindingsFlat.some(f => f.severity === 'CRITICAL');
-    const hasHigh = allFindingsFlat.some(f => f.severity === 'HIGH');
-    const maxSeverity = hasCritical ? 'CRITICAL' : hasHigh ? 'HIGH' : 'MEDIUM';
-
-    // Quarantine files with CRITICAL findings
-    const quarantined: string[] = [];
-    if (hasCritical) {
-      for (const [file, findings] of allFindings) {
-        if (findings.some(f => f.severity === 'CRITICAL')) {
-          const qPath = quarantineFile(file);
-          if (qPath) quarantined.push(qPath);
-        }
-      }
+    if (totalFindingCount === 0) {
+      // Only trusted-source skips, no findings.
+      logToAudit({
+        timestamp: new Date().toISOString(),
+        session_id: sessionId,
+        hook: HOOK_NAME,
+        action: 'SCAN_CLEAN',
+        files_scanned: memoryFiles.length,
+        trusted_skipped: trustedSkipped.map((t) => ({
+          file: basename(t.file),
+          source: t.source,
+        })),
+        memory_dir: memoryDir,
+      });
+      process.exit(0);
     }
 
-    // Audit log
+    const allFindingsFlat = Array.from(allFindings.values()).flat();
+    const hasCritical = allFindingsFlat.some((f) => f.severity === 'CRITICAL');
+    const hasHigh = allFindingsFlat.some((f) => f.severity === 'HIGH');
+    const maxSeverity = hasCritical ? 'CRITICAL' : hasHigh ? 'HIGH' : 'MEDIUM';
+
     logToAudit({
       timestamp: new Date().toISOString(),
       session_id: sessionId,
       hook: HOOK_NAME,
-      action: hasCritical ? 'QUARANTINE' : 'ALERT',
+      action: allQuarantined.length > 0 ? 'QUARANTINE' : 'ALERT',
       severity: maxSeverity,
+      surgical: surgicalQuarantines.length > 0,
       files_scanned: memoryFiles.length,
       files_with_findings: allFindings.size,
       total_findings: totalFindingCount,
-      quarantined: quarantined.length,
-      findings: allFindingsFlat.slice(0, 10).map(f => ({
+      quarantined: allQuarantined.length,
+      quarantined_entities: quarantinedEntities,
+      trusted_skipped: trustedSkipped.map((t) => ({
+        file: basename(t.file),
+        source: t.source,
+      })),
+      findings: allFindingsFlat.slice(0, 10).map((f) => ({
         type: f.type,
         severity: f.severity,
         detail: f.detail,
         patternId: f.patternId,
-        file: f.file?.split('/').pop(),
+        file: f.file ? basename(f.file) : undefined,
         line: f.line,
       })),
       memory_dir: memoryDir,
     });
 
-    // Output alert (dual notification)
-    outputAlert(allFindings, quarantined);
+    outputAlert(allFindings, allQuarantined);
 
     // SessionStart hooks: exit(0) always — cannot block session start
     // The defense is quarantine (remove file) + additionalContext (behavioral anchor)
