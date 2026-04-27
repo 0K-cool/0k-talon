@@ -27,7 +27,24 @@ export function hashContent(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
+const HASH_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * Build a per-entry cache path. `hash` MUST be a SHA-256 hex digest
+ * (validated). `cacheDir` MUST come from talon-paths (never user input).
+ *
+ * Semgrep flags `path.join` with non-literal arguments as a possible
+ * traversal vector. Here both inputs are internally constrained:
+ * - `hash` is a 64-char [0-9a-f] string (no slashes, no `..`)
+ * - `cacheDir` is built from getQuarantinePath(), itself rooted under
+ *   the validated TALON_DIR (see lib/talon-paths.ts)
+ * Throws on a malformed hash so a future caller bug surfaces loudly.
+ */
 function entryPath(hash: string, cacheDir: string): string {
+  if (!HASH_RE.test(hash)) {
+    throw new Error(`verdict-cache: invalid hash format: ${hash.slice(0, 16)}...`);
+  }
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
   return join(cacheDir, `${hash}.json`);
 }
 
@@ -82,9 +99,13 @@ export function purgeExpired(cacheDir: string): void {
   if (!existsSync(cacheDir)) return;
   try {
     const fs = require('fs') as typeof import('fs');
-    const files = fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json'));
+    // Whitelist filter: only well-formed `<sha256>.json` filenames are
+    // considered. Anything else (symlinks, traversal-shaped names, stray
+    // files) is ignored — purgeExpired never touches files it didn't write.
+    const files = fs.readdirSync(cacheDir).filter((f) => /^[0-9a-f]{64}\.json$/.test(f));
     const now = Date.now();
     for (const name of files) {
+      // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
       const file = join(cacheDir, name);
       try {
         const st = statSync(file);
