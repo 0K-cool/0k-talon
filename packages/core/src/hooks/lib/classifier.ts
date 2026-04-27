@@ -19,10 +19,16 @@
  * weakened by an API outage.
  */
 
+import { spawnSync } from 'child_process';
+import { statSync } from 'fs';
+import { join as pathJoin } from 'path';
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_TIMEOUT_MS = 8000;
+const CLI_TIMEOUT_MS = 30000; // subprocess startup adds latency vs HTTP
+const CLI_MODEL_ALIAS = 'haiku'; // mirrors established PAI pattern (security-report-session-end.ts)
 
 const INSTRUCTION_THRESHOLD = 0.85;
 const DESCRIPTION_THRESHOLD = 0.70;
@@ -42,7 +48,8 @@ export interface Verdict {
 }
 
 export interface ClassifyOptions {
-  apiKey: string;
+  /** Required for the API backend. Ignored by the CLI backend. */
+  apiKey?: string;
   model?: string;
   timeoutMs?: number;
 }
@@ -55,19 +62,74 @@ export interface Action {
 }
 
 // ===========================================================================
+// Backend resolution — Phase 4
+// ===========================================================================
+
+export type Backend = 'cli' | 'api';
+
+/**
+ * Returns true if the `claude` binary is reachable via the current
+ * process.env.PATH. Pure fs lookup — no subprocess, no shell — so test
+ * suites that mutate PATH get an accurate result on the next call.
+ *
+ * Walks PATH dirs in order, returns true on the first directory that
+ * contains an executable file named `claude`. Symlinks resolve via
+ * statSync (vs lstatSync), so a typical brew/npm shim setup works.
+ */
+function claudeCliAvailable(): boolean {
+  const pathStr = process.env.PATH || '';
+  const dirs = pathStr.split(':').filter(Boolean);
+  for (const dir of dirs) {
+    try {
+      const candidate = pathJoin(dir, 'claude');
+      const st = statSync(candidate);
+      if (st.isFile() && (st.mode & 0o111) !== 0) return true;
+    } catch {
+      // ENOENT or similar — try the next dir.
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolve which backend should serve the next classifier call.
+ *
+ * Explicit override wins (`VEX_L3_CLASSIFIER_BACKEND=cli|api`) — but
+ * still gated on actual availability so a missing dep returns null
+ * rather than burning a call to nowhere.
+ *
+ * Auto mode (default) prefers CLI when `claude` is on PATH — that
+ * routes through the user's MAX subscription instead of charging an
+ * API key. Falls back to API only when an explicit key is set.
+ *
+ * Returns null when no backend is usable; callers should treat that
+ * as "smart tier disabled" (silent no-op, runs Phase 1 only).
+ */
+export function resolveBackend(): Backend | null {
+  const explicit = (process.env.VEX_L3_CLASSIFIER_BACKEND || '').toLowerCase();
+  const apiKeyPresent = typeof process.env.ANTHROPIC_API_KEY === 'string' && process.env.ANTHROPIC_API_KEY.length > 0;
+
+  if (explicit === 'cli') return claudeCliAvailable() ? 'cli' : null;
+  if (explicit === 'api') return apiKeyPresent ? 'api' : null;
+  // Auto mode — CLI wins when available (MAX subscription, no key needed)
+  if (claudeCliAvailable()) return 'cli';
+  if (apiKeyPresent) return 'api';
+  return null;
+}
+
+// ===========================================================================
 // Tier gating
 // ===========================================================================
 
 /**
  * Returns true if smart-tier classification should run for this session.
- * Requires both the env opt-in AND a usable API key. Defaults to false
+ * Requires both the env opt-in AND a usable backend. Defaults to false
  * so plugin installs that haven't configured anything are no-op.
  */
 export function isClassifierEnabled(): boolean {
   const tier = (process.env.VEX_L3_CLASSIFIER || 'off').toLowerCase();
   if (tier !== 'smart') return false;
-  const key = process.env.ANTHROPIC_API_KEY;
-  return typeof key === 'string' && key.length > 0;
+  return resolveBackend() !== null;
 }
 
 // ===========================================================================
@@ -198,12 +260,70 @@ interface AnthropicMessagesResponse {
 }
 
 /**
- * Send `body` to Haiku for classification. Always returns a Verdict —
- * never throws. Network errors, timeouts, parse failures, and schema
- * violations all map to `verdict: ERROR` so the caller can apply the
- * fail-safe quarantine policy uniformly.
+ * Top-level dispatch. Resolves the backend (CLI preferred under PAI's
+ * local-only philosophy, API as fallback) and forwards to the
+ * appropriate implementation. Always returns a Verdict — never throws.
  */
 export async function classifyContent(body: string, opts: ClassifyOptions): Promise<Verdict> {
+  const backend = resolveBackend();
+  if (backend === 'cli') return classifyViaCli(body, opts);
+  if (backend === 'api') return classifyViaApi(body, opts);
+  return { verdict: 'ERROR', confidence: 0, reasoning: 'no classifier backend available' };
+}
+
+/**
+ * CLI backend: shell out to `claude -p --model haiku
+ * --no-session-persistence` from /tmp. Uses the user's Claude Code MAX
+ * subscription — no API key, no per-call charge.
+ *
+ * /tmp cwd is critical: it stops Claude Code from auto-loading any
+ * CLAUDE.md it would find walking up from PAI_DIR, which would inject
+ * tens of KB of irrelevant context into a 200-token classification call.
+ */
+function classifyViaCli(body: string, opts: ClassifyOptions): Verdict {
+  const timeoutMs = opts.timeoutMs ?? CLI_TIMEOUT_MS;
+  const prompt = `${SYSTEM_PROMPT}\n\n${buildUserMessage(body)}`;
+
+  try {
+    const result = spawnSync(
+      'claude',
+      ['-p', '--model', CLI_MODEL_ALIAS, '--no-session-persistence'],
+      {
+        input: prompt,
+        cwd: '/tmp',
+        encoding: 'utf-8',
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+
+    if (result.error) {
+      return { verdict: 'ERROR', confidence: 0, reasoning: `cli spawn failed: ${result.error.message}` };
+    }
+    if (result.status !== 0) {
+      const stderr = (result.stderr || '').slice(0, 200);
+      return { verdict: 'ERROR', confidence: 0, reasoning: `cli exit ${result.status}: ${stderr}` };
+    }
+    const stdout = (result.stdout || '').trim();
+    if (!stdout) {
+      return { verdict: 'ERROR', confidence: 0, reasoning: 'cli returned empty output' };
+    }
+    return parseVerdict(stdout);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { verdict: 'ERROR', confidence: 0, reasoning: `cli failed: ${msg}` };
+  }
+}
+
+/**
+ * API backend: HTTP POST to api.anthropic.com. Burns API credits.
+ * Fallback for environments without the Claude Code CLI on PATH.
+ */
+async function classifyViaApi(body: string, opts: ClassifyOptions): Promise<Verdict> {
+  const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
+  if (!apiKey) {
+    return { verdict: 'ERROR', confidence: 0, reasoning: 'api backend selected but no apiKey provided' };
+  }
   const model = opts.model ?? DEFAULT_MODEL;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -215,7 +335,7 @@ export async function classifyContent(body: string, opts: ClassifyOptions): Prom
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': opts.apiKey,
+        'x-api-key': apiKey,
         'anthropic-version': ANTHROPIC_API_VERSION,
       },
       body: JSON.stringify({

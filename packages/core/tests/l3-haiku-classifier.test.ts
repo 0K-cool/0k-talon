@@ -87,44 +87,8 @@ describe('decideAction', () => {
   });
 });
 
-// ===========================================================================
-// isClassifierEnabled — env gating
-// ===========================================================================
-
-describe('isClassifierEnabled', () => {
-  const origTier = process.env.VEX_L3_CLASSIFIER;
-  const origKey = process.env.ANTHROPIC_API_KEY;
-  afterEach(() => {
-    if (origTier === undefined) delete process.env.VEX_L3_CLASSIFIER;
-    else process.env.VEX_L3_CLASSIFIER = origTier;
-    if (origKey === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = origKey;
-  });
-
-  it('returns false when VEX_L3_CLASSIFIER is unset (default off)', () => {
-    delete process.env.VEX_L3_CLASSIFIER;
-    process.env.ANTHROPIC_API_KEY = 'sk-test';
-    expect(isClassifierEnabled()).toBe(false);
-  });
-
-  it('returns false when VEX_L3_CLASSIFIER=off', () => {
-    process.env.VEX_L3_CLASSIFIER = 'off';
-    process.env.ANTHROPIC_API_KEY = 'sk-test';
-    expect(isClassifierEnabled()).toBe(false);
-  });
-
-  it('returns false when smart mode is set but no API key', () => {
-    process.env.VEX_L3_CLASSIFIER = 'smart';
-    delete process.env.ANTHROPIC_API_KEY;
-    expect(isClassifierEnabled()).toBe(false);
-  });
-
-  it('returns true when smart mode AND API key present', () => {
-    process.env.VEX_L3_CLASSIFIER = 'smart';
-    process.env.ANTHROPIC_API_KEY = 'sk-test';
-    expect(isClassifierEnabled()).toBe(true);
-  });
-});
+// isClassifierEnabled tests moved to l3-classifier-backend.test.ts (Phase 4)
+// — that suite covers the CLI/API/none resolution matrix more thoroughly.
 
 // ===========================================================================
 // hashContent + cache
@@ -185,9 +149,24 @@ describe('verdict-cache', () => {
 
 describe('classifyContent (with mocked fetch)', () => {
   const origFetch = globalThis.fetch;
+  const origBackend = process.env.VEX_L3_CLASSIFIER_BACKEND;
+  const origApiKey = process.env.ANTHROPIC_API_KEY;
+
+  beforeEach(() => {
+    // Phase 4: pin to API backend so the dispatcher in classifyContent
+    // doesn't auto-pick CLI just because `claude` happens to be on PATH
+    // on this dev machine. These tests are explicitly exercising the
+    // API path with mocked fetch.
+    process.env.VEX_L3_CLASSIFIER_BACKEND = 'api';
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+  });
 
   afterEach(() => {
     globalThis.fetch = origFetch;
+    if (origBackend === undefined) delete process.env.VEX_L3_CLASSIFIER_BACKEND;
+    else process.env.VEX_L3_CLASSIFIER_BACKEND = origBackend;
+    if (origApiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = origApiKey;
     vi.restoreAllMocks();
   });
 
