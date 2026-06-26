@@ -5,6 +5,17 @@ All notable changes to 0K-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-06-26
+
+### Added
+
+- **GitHub CLI state-mutation guard (L1 gh-policy)** — three-tier classifier for `gh` state-mutating operations, gated by `OK_TALON_GH_POLICY` (`tier1` default | `full` | `off`). Tier 1 (irreversible: repo delete, secret remove, raw DELETE API calls, repo transfer, auth/SSH/GPG key mutations) hard-blocks. Tier 2 (recoverable: PR merge, secret set, release create/publish, raw write API) requires an out-of-band confirm token in `full` mode, issued via the new `talon-gh-confirm` CLI (refuses to run inside an agent session). The classifier sweeps anchored patterns over the quote-stripped command with a fail-safe full-command sweep for interpreter `-c`/`-e` wrappers — catching compound, piped, command/process-substituted, escaped, command-runner-prefixed, and wrapper-hidden forms — without false-positiving on quoted data.
+- **L2 LLM-review tier with confidence-aware revert** — opt-in via `OK_TALON_L2_CLASSIFIER=smart`. Default (`off`) keeps the existing static-only behavior unchanged. In smart mode, static analysis stays always-on and escalates to a Haiku security review: a static-critical finding or a high/medium-confidence UNSAFE verdict quarantines and reverts the write; low-confidence warns only; a review failure/timeout retries once, then fails closed. Infra/tooling paths are scan-only (never reverted).
+
+### Security
+
+- Documented the gh-policy confirm-token threat model honestly: Tier 2's token is an **intent gate for an honest agent** (it prevents accidental/over-eager recoverable mutations), **not** proof against a malicious or prompt-injected one — the token is a local file an agent with filesystem write could forge. The real boundary against a malicious agent is **Tier 1** (a hard block no token lifts) plus the **OS sandbox**.
+
 ## [1.9.0] - 2026-05-19
 
 ### Added

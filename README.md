@@ -77,7 +77,7 @@ Most developers run Claude Code with zero security layers. 0K-Talon adds 21.
 | Layer | Name | What It Does |
 |-------|------|-------------|
 | **L0** | Secure Code Enforcer | Blocks CRITICAL vulnerabilities (SQL injection, command injection, hardcoded secrets) before code is written |
-| **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, input-side DLP (17 secret patterns), and command normalization (anti-evasion). Blocks dangerous operations, modifies risky inputs |
+| **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, input-side DLP (17 secret patterns), command normalization (anti-evasion), and a GitHub CLI state-mutation guard (gh-policy: tiered block / confirm-token, `OK_TALON_GH_POLICY`). Blocks dangerous operations, modifies risky inputs |
 | **L3** | Memory Validation† | Detects instruction injection, fake facts, and context manipulation in MCP memory operations |
 | **L9** | Egress Scanner | Prevents data exfiltration via secrets in URLs, bulk data transfer, base64-encoded payloads, and blocked destinations (pastebin, ngrok, webhook.site) |
 | **L14** | Supply Chain Pre-Install | Blocks 60+ known malicious packages before installation. Optional real-time API via OpenSourceMalware.com |
