@@ -27,7 +27,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",
     "typescript": "^5.3.0",
-    "vitest": "^2.1.0"
+    "vitest": "^3.2.6"
   },
   "dependencies": {
     "@cedar-policy/cedar-wasm": "^4.11.0"
