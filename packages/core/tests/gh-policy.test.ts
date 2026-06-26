@@ -154,3 +154,31 @@ describe('classifyGhCommand — CONTAINS classifier (runner options + interprete
     expect(classifyGhCommand('/bin/sh -c "gh secret remove K"').tier).toBe(GhTier.BLOCK);
   });
 });
+
+describe('classifyGhCommand — review-round hardening (CodeRabbit findings)', () => {
+  // #1 release create publishes by default; not only --draft=false.
+  it('gates a plain release create (publishes by default)', () => {
+    expect(classifyGhCommand('gh release create v1.2.3 --notes x').tier).toBe(GhTier.CONFIRM);
+  });
+
+  // #2 escaped command fragment: bash runs g\h as gh.
+  it('catches an escaped command fragment (g\\h pr merge)', () => {
+    expect(classifyGhCommand('g\\h pr merge 5 --squash').tier).toBe(GhTier.CONFIRM);
+  });
+  it('still catches the escaped-quote wrapping after the escape fix', () => {
+    expect(classifyGhCommand('echo \\" ; gh repo delete o/r --yes ; echo \\"').tier).toBe(GhTier.BLOCK);
+  });
+
+  // #3 clustered interpreter flags (bash -lc).
+  it('catches a Tier-1 op inside bash -lc (clustered flags)', () => {
+    expect(classifyGhCommand('bash -lc "gh repo delete 0K-cool/x --yes"').tier).toBe(GhTier.BLOCK);
+  });
+
+  // #94 --method=VERB form (with =, not just space).
+  it('catches gh api --method=DELETE (= form)', () => {
+    expect(classifyGhCommand('gh api --method=DELETE /repos/o/r').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches gh api --method=POST (= form) as Tier 2', () => {
+    expect(classifyGhCommand('gh api --method=POST /repos/o/r/issues').tier).toBe(GhTier.CONFIRM);
+  });
+});

@@ -29,6 +29,13 @@
 
 set -euo pipefail
 
+# ---- Dependency check ----
+# This script builds the token JSON and audit entry with jq.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "❌ talon-gh-confirm requires 'jq' (not found on PATH). Install it: brew install jq / apt-get install jq" >&2
+  exit 1
+fi
+
 USES_MAX=20
 TTL_MAX_SECONDS=43200  # 12h
 TTL_MIN_SECONDS=60

@@ -329,6 +329,8 @@ talon-gh-confirm --uses 10 --ttl 8h "release session" # batch session
 
 The token is written to `<TALON_DIR>/state/gh-policy-gh-confirm-token.json`; the Governor consumes one use per matching Tier 2 op and deletes the file when uses reach zero. Issuance is logged to `<TALON_DIR>/logs/gh-confirm-audit.jsonl`. Caps: 1–20 uses, 60s–12h TTL.
 
+> **What the confirm token does and doesn't protect against.** Tier 2's token is an *intent gate for an honest agent* — it stops accidental or over-eager recoverable mutations by requiring an out-of-band operator action. It is **not** a guarantee against a malicious or prompt-injected agent: the token is a local file, and an agent with filesystem write could forge it. The real boundary against a malicious agent is **Tier 1** (a hard block no token can lift) plus the **OS sandbox** (L10/L11). Run irreversible operations yourself, in your own terminal — not through an agent.
+
 ### Supply Chain API (L14)
 
 The PreToolUse supply chain scanner has two modes:

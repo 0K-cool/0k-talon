@@ -2,17 +2,21 @@
  * gh-policy — three-tier classifier for `gh` (GitHub CLI) operations.
  *
  * Tier 1 BLOCK  — destructive / irreversible (repo delete, secret remove,
- *                 api -X DELETE, etc.). Hard block. Operator-only.
+ *                 api -X DELETE, etc.). Hard block. No token bypasses it.
  * Tier 2 CONFIRM — state-mutating but recoverable (repo edit, pr merge,
- *                 release publish, secret set, etc.). Blocked unless a
- *                 valid single-use confirm token exists in state.
- * Tier 3 ALLOW   — routine ops (view/list/search/api GET, pr create,
- *                 release create draft, etc.). Audit log only.
+ *                 release create/publish, secret set, etc.). Blocked unless a
+ *                 valid confirm token exists in state.
+ * Tier 3 ALLOW   — routine ops (view/list/search/api GET, pr create, etc.).
+ *                 Audit log only.
  *
- * Motivation: a documented attack class (2026-05) has an agent running
- * `gh repo edit --visibility private` despite hooks, by reading the
- * hook's own error-message suggestion as a bypass path. This module
- * is the L1 Governor enforcement point for that attack class.
+ * Threat model — be honest about what each tier buys:
+ *  - Tier 1 is the real boundary against an irreversible mistake or a malicious
+ *    agent: a hard block no token can lift. The OS sandbox (L10/L11) backs it.
+ *  - Tier 2's confirm token is an INTENT GATE for an HONEST agent — it prevents
+ *    accidental / over-eager recoverable mutations by requiring an out-of-band
+ *    operator action. It is NOT a guarantee against a malicious/injected agent:
+ *    the token is a local file, and an agent with filesystem write could forge
+ *    it. Against that threat, rely on Tier 1 + the sandbox, not the token.
  *
  * Pure functions — no I/O for classification. Token I/O is split into
  * a separate set of helpers below so the classifier itself stays unit-
@@ -87,9 +91,9 @@ const TIER_1_BLOCK: PatternRule[] = [
     operation: 'gpg-key mutation',
     reason: 'GPG key changes are operator-only',
   },
-  // gh api -X DELETE — matches the -X DELETE flag anywhere in the command
+  // gh api with a DELETE method — matches `-X DELETE`, `--method DELETE`, and `--method=DELETE`
   {
-    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)\s+DELETE\b/i,
+    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)[\s=]+DELETE\b/i,
     operation: 'api DELETE',
     reason: 'Raw DELETE API calls are operator-only',
   },
@@ -116,10 +120,12 @@ const TIER_2_CONFIRM: PatternRule[] = [
     reason: 'Release edits require operator confirmation',
   },
   {
-    // Publishing a draft release is effectively irreversible (tag pushed, notifications sent)
-    pattern: /\bgh\s+release\s+create\b[^|;&]*?--draft=false\b/,
-    operation: 'release publish (--draft=false)',
-    reason: 'Publishing a release requires operator confirmation',
+    // `gh release create` publishes by default (tag pushed, notifications sent) unless
+    // `--draft`/`--draft=true` is given — so gate ALL release create; a true-draft create
+    // getting a confirm prompt is acceptable fail-safe friction.
+    pattern: /\bgh\s+release\s+create\b/,
+    operation: 'release create/publish',
+    reason: 'Creating/publishing a release requires operator confirmation',
   },
   {
     pattern: /\bgh\s+pr\s+merge\b/,
@@ -136,21 +142,26 @@ const TIER_2_CONFIRM: PatternRule[] = [
     operation: 'variable set',
     reason: 'Setting variables requires operator confirmation',
   },
-  // gh api -X PUT/POST/PATCH — write methods
+  // gh api write methods — matches `-X PUT`, `--method POST`, and `--method=PATCH`
   {
-    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)\s+(?:PUT|POST|PATCH)\b/i,
+    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)[\s=]+(?:PUT|POST|PATCH)\b/i,
     operation: 'api write',
     reason: 'Raw write API calls require operator confirmation',
   },
 ];
 
 /**
- * Drop backslash escapes (bash treats `\X` as a literal X). A naive scan would
- * otherwise misread `\"` as a quote boundary or `\;` as a separator, which is
- * the escaped-quote bypass class. Removing the escaped pair neutralizes it.
+ * Neutralize backslash escapes (bash treats `\X` as a literal X).
+ * Two cases, handled in order:
+ *  - Escaped QUOTES (`\"` `\'`) are removed entirely so they cannot form false
+ *    quote pairs (the escaped-quote bypass: `echo \" ; gh pr merge ; echo \"`).
+ *  - Any OTHER escaped char (`\h`, `\;`) collapses to its literal (`\h`→`h`), so
+ *    an escaped command fragment like `g\h pr merge` still reads as `gh pr merge`
+ *    — bash runs it as `gh`. (The old `\\.`→space turned `g\h` into `g h` and
+ *    broke the match, which was itself a bypass.)
  */
 function neutralizeEscapes(cmd: string): string {
-  return cmd.replace(/\\./g, ' ');
+  return cmd.replace(/\\(['"])/g, '').replace(/\\(.)/g, '$1');
 }
 
 /**
@@ -177,8 +188,10 @@ function stripBalancedQuotes(s: string): string {
 // `\b` lead-in (not `[\s/]`): a shell metacharacter (`;` `|` `&` `(`) is a word
 // boundary, so `;sh -c "…"` / `|bash -c "…"` must still trip Stage 2. `\b` also
 // matches after `/`, so `/bin/sh -c` is covered.
+// `-[a-z]*[ce]` (not `-[ce]`) so clustered flag bundles like `bash -lc` / `-ec`
+// are caught, not just a bare `-c`/`-e`.
 const INTERPRETER_EXEC =
-  /\b(?:[a-z]*sh|python\d?|perl|ruby|node|php|pwsh)\s+-[ce]\b|\beval\b/i;
+  /\b(?:[a-z]*sh|python\d?|perl|ruby|node|php|pwsh)\s+-[a-z]*[ce]\b|\beval\b/i;
 
 /**
  * Match the tier pattern tables against a string. Returns the most-severe match

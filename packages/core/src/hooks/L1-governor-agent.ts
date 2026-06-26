@@ -842,10 +842,23 @@ async function main() {
     // required (only enforced in `full` mode). Closes the attack class where an
     // agent self-authorizes a destructive gh op despite hooks.
     // Mode via OK_TALON_GH_POLICY: 'tier1' (default) | 'full' | 'off'.
-    const ghPolicyMode = (process.env.OK_TALON_GH_POLICY || 'tier1').toLowerCase();
+    // Validate explicitly — an unknown value (e.g. a `ful` typo) must NOT silently
+    // weaken to tier1. Fail closed to 'full' (most protective) with a loud warning.
+    const ghPolicyRaw = (process.env.OK_TALON_GH_POLICY || 'tier1').toLowerCase();
+    const ghPolicyMode = ['tier1', 'full', 'off'].includes(ghPolicyRaw) ? ghPolicyRaw : 'full';
+    if (ghPolicyMode !== ghPolicyRaw) {
+      console.error(`⚠️  [Governor L1] Unknown OK_TALON_GH_POLICY='${ghPolicyRaw}' — failing closed to 'full' (valid: tier1|full|off).`);
+    }
     if (ghPolicyMode !== 'off' && data.tool_name === 'Bash') {
       const ghCommand = String(normalizedParams._normalizedCommand || normalizedParams.command || '');
       const ghResult = classifyGhCommand(ghCommand);
+      // Redact inline secret values before auditing — the raw command can carry a
+      // secret (e.g. `gh secret set NAME --body <secret>`) that sanitizeParameters
+      // does not mask. (Piped secrets like `echo X | gh secret set` are covered by
+      // the input-side DLP scan, not here.)
+      const ghAuditParams = {
+        command: ghCommand.replace(/(--body|-b|--body-file|-f)([ =]+)\S+/gi, '$1$2***'),
+      };
 
       if (ghResult.tier === GhTier.BLOCK) {
         // Tier 1 — irreversible, operator-only. Block ALWAYS (tier1 and full).
@@ -858,7 +871,7 @@ async function main() {
         logToAudit({
           timestamp: new Date().toISOString(),
           tool: data.tool_name,
-          parameters: sanitizeParameters(params),
+          parameters: ghAuditParams,
           policy_matched: `gh-policy:tier1:${ghResult.operation}`,
           action: 'BLOCK',
           severity: 'CRITICAL',
@@ -885,7 +898,7 @@ async function main() {
           logToAudit({
             timestamp: new Date().toISOString(),
             tool: data.tool_name,
-            parameters: sanitizeParameters(params),
+            parameters: ghAuditParams,
             policy_matched: `gh-policy:tier2:authorized:${ghResult.operation}`,
             action: 'ALLOW',
             severity: 'NONE',
@@ -906,7 +919,7 @@ async function main() {
           logToAudit({
             timestamp: new Date().toISOString(),
             tool: data.tool_name,
-            parameters: sanitizeParameters(params),
+            parameters: ghAuditParams,
             policy_matched: `gh-policy:tier2:${ghResult.operation}`,
             action: 'BLOCK',
             severity: 'HIGH',
