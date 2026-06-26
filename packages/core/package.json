@@ -30,6 +30,6 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
-    "@cedar-policy/cedar-wasm": "^4.9.1"
+    "@cedar-policy/cedar-wasm": "^4.11.0"
   }
 }
