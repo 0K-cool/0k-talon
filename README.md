@@ -273,6 +273,7 @@ Security events log to `~/.0k-talon/logs/` and a summary report generates when y
 | `OK_TALON_L3_CLASSIFIER_BACKEND` | L3 classifier backend: `cli` (Claude Code MAX), `api` (ANTHROPIC_API_KEY), or unset (auto: CLI preferred) | _(auto)_ |
 | `OK_TALON_L4_CLASSIFIER` | L4 injection scanner semantic tier: `off` or `smart` (Haiku-gated DESCRIPTION-class alert downgrade) | `off` |
 | `OK_TALON_L4_CLASSIFIER_BACKEND` | L4 classifier backend: `cli`, `api`, or unset (auto) | _(auto)_ |
+| `OK_TALON_GH_POLICY` | L1 gh-policy guard for `gh` (GitHub CLI) state-mutating ops: `tier1` (block irreversible ops only), `full` (also gate recoverable ops behind a confirm token), or `off` | `tier1` |
 | `TALON_DIR` | Custom data directory | `~/.0k-talon` |
 
 > `VEX_L3_CLASSIFIER` / `VEX_L4_CLASSIFIER` (and their `_BACKEND` variants) still work as deprecated aliases — they emit a one-time stderr warning per process and will be removed in 0K-Talon v2. See [CHANGELOG](CHANGELOG.md) for the migration table.
@@ -301,6 +302,32 @@ OK_TALON_PROFILE=research claude
 | `audit` | Read, Glob, Grep, Bash, Web | All | None |
 | `client-work` | All except WebFetch/WebSearch | Blocked | Limited |
 | `research` | Read, Glob, Grep, Web | All | None |
+
+### GitHub CLI State-Mutation Guard (L1 gh-policy)
+
+The L1 Governor classifies `gh` (GitHub CLI) commands into three tiers and gates state-mutating operations. This closes the attack class where an agent self-authorizes a destructive `gh` operation — even one buried in a compound command, pipe, command substitution, or shell-wrapper payload (`sh -c`, `eval`, `xargs`, etc.).
+
+| Tier | Examples | Behavior |
+|------|----------|----------|
+| **Tier 1 — irreversible** | `gh repo delete`, `gh release delete`, `gh repo transfer`, `gh secret remove`, `gh api -X DELETE`, ssh/gpg-key mutations, auth state changes | **Always blocked** (operator-only). Cannot be authorized by the agent. |
+| **Tier 2 — recoverable** | `gh repo edit`, `gh pr merge`, `gh release edit`, `gh secret set`, `gh api -X PUT/POST/PATCH` | Blocked unless a valid confirm token exists. Only enforced when `OK_TALON_GH_POLICY=full`. |
+| **Tier 3 — routine** | `gh pr view`, `gh repo view`, `gh api` (GET), `gh pr create`, `gh release create --draft` | Allowed (audit log only). |
+
+Set the mode with `OK_TALON_GH_POLICY`:
+
+- `tier1` (default) — block Tier 1 irreversible ops; allow Tier 2.
+- `full` — also require a confirm token for Tier 2 ops.
+- `off` — disable the guard entirely.
+
+**Confirm tokens (`talon-gh-confirm`):** In `full` mode, a Tier 2 operation requires a single-use (or multi-use) confirm token issued out-of-band. The CLI **refuses to run inside a Claude Code session** (detected via env var + parent process tree), so the agent cannot self-authorize:
+
+```bash
+# In your own terminal (not inside an agent session):
+talon-gh-confirm "make repo private"                 # single-use, 120s TTL
+talon-gh-confirm --uses 10 --ttl 8h "release session" # batch session
+```
+
+The token is written to `<TALON_DIR>/state/gh-policy-gh-confirm-token.json`; the Governor consumes one use per matching Tier 2 op and deletes the file when uses reach zero. Issuance is logged to `<TALON_DIR>/logs/gh-confirm-audit.jsonl`. Caps: 1–20 uses, 60s–12h TTL.
 
 ### Supply Chain API (L14)
 

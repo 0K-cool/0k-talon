@@ -17,7 +17,8 @@
  */
 
 import { join, basename } from 'path';
-import { TALON_DIR, getAuditLogPath, ensureDirectories, secureAppendLog } from './lib/talon-paths';
+import { TALON_DIR, getAuditLogPath, ensureDirectories, secureAppendLog, getStateFilePath } from './lib/talon-paths';
+import { classifyGhCommand, GhTier, checkConfirmToken, consumeConfirmToken } from './lib/gh-policy';
 import { checkCircuit, recordSuccess, recordFailure } from './lib/circuit-breaker';
 import { normalizeUnicode } from './lib/unicode-normalize';
 import {
@@ -834,6 +835,96 @@ async function main() {
       }
     }
     // ========== END L12 PROFILE ENFORCEMENT ==========
+
+    // ========== GH-POLICY STATE-MUTATION GUARD ==========
+    // Three-tier classifier for `gh` (GitHub CLI) state-mutating ops.
+    // Tier 1 (irreversible) → hard block. Tier 2 (recoverable) → confirm token
+    // required (only enforced in `full` mode). Closes the attack class where an
+    // agent self-authorizes a destructive gh op despite hooks.
+    // Mode via OK_TALON_GH_POLICY: 'tier1' (default) | 'full' | 'off'.
+    const ghPolicyMode = (process.env.OK_TALON_GH_POLICY || 'tier1').toLowerCase();
+    if (ghPolicyMode !== 'off' && data.tool_name === 'Bash') {
+      const ghCommand = String(normalizedParams._normalizedCommand || normalizedParams.command || '');
+      const ghResult = classifyGhCommand(ghCommand);
+
+      if (ghResult.tier === GhTier.BLOCK) {
+        // Tier 1 — irreversible, operator-only. Block ALWAYS (tier1 and full).
+        console.error(`\n🔒 [Governor L1] GH OPERATION BLOCKED (operator-only)`);
+        console.error(`    Operation: ${ghResult.operation}`);
+        console.error(`    Reason: ${ghResult.reason}`);
+        console.error(`    This irreversible operation cannot be performed by an agent.`);
+        console.error(`    See the 0K-Talon README (gh-policy guard) for the operator workflow.\n`);
+
+        logToAudit({
+          timestamp: new Date().toISOString(),
+          tool: data.tool_name,
+          parameters: sanitizeParameters(params),
+          policy_matched: `gh-policy:tier1:${ghResult.operation}`,
+          action: 'BLOCK',
+          severity: 'CRITICAL',
+          input_modified: false,
+          message: `gh-policy Tier 1 (irreversible, operator-only): ${ghResult.reason}`,
+          evaluation_time_ms: Date.now() - startTime,
+          session_id: data.session_id,
+        });
+
+        console.log(JSON.stringify({
+          decision: 'block',
+          reason: `🔒 gh-policy Tier 1 (operator-only): ${ghResult.reason}`,
+        }));
+        process.exit(2);
+      }
+
+      if (ghResult.tier === GhTier.CONFIRM && ghPolicyMode === 'full') {
+        // Tier 2 — recoverable, requires a valid operator confirm token.
+        const tokenPath = getStateFilePath('gh-policy', 'gh-confirm-token.json');
+        const tokenCheck = checkConfirmToken(tokenPath);
+
+        if (tokenCheck.valid) {
+          consumeConfirmToken(tokenPath);
+          logToAudit({
+            timestamp: new Date().toISOString(),
+            tool: data.tool_name,
+            parameters: sanitizeParameters(params),
+            policy_matched: `gh-policy:tier2:authorized:${ghResult.operation}`,
+            action: 'ALLOW',
+            severity: 'NONE',
+            input_modified: false,
+            message: `gh-policy Tier 2 authorized by confirm token: ${ghResult.operation}`,
+            evaluation_time_ms: Date.now() - startTime,
+            session_id: data.session_id,
+          });
+          // Authorized — fall through to normal governor evaluation.
+        } else {
+          console.error(`\n🔒 [Governor L1] GH OPERATION BLOCKED (confirmation required)`);
+          console.error(`    Operation: ${ghResult.operation}`);
+          console.error(`    Reason: ${ghResult.reason}`);
+          console.error(`    Token status: ${tokenCheck.reason}`);
+          console.error(`    To authorize: issue a confirm token with 'talon-gh-confirm'`);
+          console.error(`    from your own terminal (cannot be run from inside this session).\n`);
+
+          logToAudit({
+            timestamp: new Date().toISOString(),
+            tool: data.tool_name,
+            parameters: sanitizeParameters(params),
+            policy_matched: `gh-policy:tier2:${ghResult.operation}`,
+            action: 'BLOCK',
+            severity: 'HIGH',
+            input_modified: false,
+            message: `gh-policy Tier 2 (confirm token required): ${ghResult.reason} [${tokenCheck.reason}]`,
+            evaluation_time_ms: Date.now() - startTime,
+            session_id: data.session_id,
+          });
+
+          console.log(JSON.stringify({
+            decision: 'block',
+            reason: `🔒 gh-policy Tier 2 (confirmation required): ${ghResult.reason}. Issue a token via 'talon-gh-confirm' from your own terminal.`,
+          }));
+          process.exit(2);
+        }
+      }
+    }
+    // ========== END GH-POLICY STATE-MUTATION GUARD ==========
 
     const result = evaluatePolicies(data.tool_name, normalizedParams);
     const evaluationTime = Date.now() - startTime;
