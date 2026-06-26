@@ -4,6 +4,9 @@
   "description": "Security hooks and policies for 0K-Talon",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "talon-gh-confirm": "./bin/talon-gh-confirm"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+#
+# talon-gh-confirm — issue a confirm token authorizing Tier 2 `gh` (GitHub CLI)
+# state-mutating operations through 0K-Talon's L1 Governor gh-policy guard.
+#
+# Usage:
+#   talon-gh-confirm "<reason>"                          # single-use, 120s
+#   talon-gh-confirm --uses 10 --ttl 8h "<reason>"       # batch session
+#
+# Flags:
+#   --uses N      number of allowed Tier 2 ops on this token (1..20, default 1)
+#   --ttl SPEC    token lifetime: <N>s, <N>m, <N>h (60s..12h, default 120s)
+#
+# The 0K-Talon L1 Governor reads the token at
+# <TALON_DIR>/state/gh-policy-gh-confirm-token.json and decrements
+# uses_remaining on each matching Tier 2 op. The file is deleted at 0.
+# gh-policy Tier 2 enforcement is active only when OK_TALON_GH_POLICY=full.
+#
+# This script REFUSES to run from inside a Claude Code agent session
+# (detected via CLAUDECODE env var + parent process tree walk). The intent-
+# validation guarantee relies on the operator typing the command in a
+# non-agent terminal.
+#
+# Motivation: addresses the attack class where an agent reads hook error
+# messages as bypass paths. Token issuance is moved out-of-band so the agent
+# cannot self-authorize. Multi-use mode absorbs burst sessions (e.g., focused
+# PR-shipping days) without per-op friction. Caps preserve the security model:
+# operator-driven, time-bounded, audited.
+
+set -euo pipefail
+
+# ---- Dependency check ----
+# This script builds the token JSON and audit entry with jq.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "❌ talon-gh-confirm requires 'jq' (not found on PATH). Install it: brew install jq / apt-get install jq" >&2
+  exit 1
+fi
+
+USES_MAX=20
+TTL_MAX_SECONDS=43200  # 12h
+TTL_MIN_SECONDS=60
+
+# ---- Refuse if running inside a Claude Code session ----
+if [ -n "${CLAUDECODE:-}" ] || [ -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]; then
+    echo "❌ talon-gh-confirm cannot be invoked from inside a Claude Code session." >&2
+    echo "   This token must be issued by you, in your own terminal." >&2
+    echo "   Open a new shell and re-run the command there." >&2
+    exit 2
+fi
+
+# Belt-and-suspenders: walk parent process tree looking for 'claude'
+parent_pid="${PPID:-0}"
+for _ in 1 2 3 4 5; do
+    [ "$parent_pid" -eq 0 ] && break
+    parent_name=$(ps -o comm= -p "$parent_pid" 2>/dev/null | xargs basename 2>/dev/null || echo "")
+    if [[ "$parent_name" == "claude" ]] || [[ "$parent_name" == *"claude-code"* ]]; then
+        echo "❌ talon-gh-confirm refused: detected 'claude' in parent process tree." >&2
+        echo "   This token must be issued by you, in your own terminal." >&2
+        exit 2
+    fi
+    parent_pid=$(ps -o ppid= -p "$parent_pid" 2>/dev/null | tr -d ' ' || echo "0")
+done
+
+# ---- Parse flags ----
+uses=1
+ttl_seconds=120
+reason=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --uses)
+            shift
+            [ $# -gt 0 ] || { echo "❌ --uses requires a value" >&2; exit 1; }
+            uses="$1"
+            if ! [[ "$uses" =~ ^[0-9]+$ ]] || [ "$uses" -lt 1 ] || [ "$uses" -gt "$USES_MAX" ]; then
+                echo "❌ --uses must be an integer in [1..${USES_MAX}]" >&2
+                exit 1
+            fi
+            shift
+            ;;
+        --ttl)
+            shift
+            [ $# -gt 0 ] || { echo "❌ --ttl requires a value" >&2; exit 1; }
+            ttl_spec="$1"
+            if ! [[ "$ttl_spec" =~ ^([0-9]+)([smh]?)$ ]]; then
+                echo "❌ --ttl must be a number optionally suffixed s, m, or h (e.g. 120s, 5m, 8h)" >&2
+                exit 1
+            fi
+            ttl_num="${BASH_REMATCH[1]}"
+            ttl_unit="${BASH_REMATCH[2]:-s}"
+            case "$ttl_unit" in
+                s) ttl_seconds=$ttl_num ;;
+                m) ttl_seconds=$((ttl_num * 60)) ;;
+                h) ttl_seconds=$((ttl_num * 3600)) ;;
+            esac
+            if [ "$ttl_seconds" -lt "$TTL_MIN_SECONDS" ] || [ "$ttl_seconds" -gt "$TTL_MAX_SECONDS" ]; then
+                echo "❌ --ttl must resolve to between ${TTL_MIN_SECONDS}s and ${TTL_MAX_SECONDS}s (12h)" >&2
+                exit 1
+            fi
+            shift
+            ;;
+        --help|-h)
+            sed -n '3,18p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        --)
+            shift
+            reason="${1:-}"
+            shift || true
+            break
+            ;;
+        -*)
+            echo "❌ unknown flag: $1" >&2
+            exit 1
+            ;;
+        *)
+            if [ -z "$reason" ]; then
+                reason="$1"
+            else
+                echo "❌ unexpected extra positional arg: $1" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# ---- Reason validation ----
+if [ -z "$reason" ]; then
+    echo "Usage: talon-gh-confirm [--uses N] [--ttl SPEC] \"<reason>\"" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  talon-gh-confirm \"make repo private\"" >&2
+    echo "  talon-gh-confirm --uses 10 --ttl 8h \"weekend release session\"" >&2
+    echo "" >&2
+    echo "Reason is logged to <TALON_DIR>/logs/gh-confirm-audit.jsonl — be specific." >&2
+    exit 1
+fi
+if [ ${#reason} -lt 8 ]; then
+    echo "❌ reason must be at least 8 characters (be specific)" >&2
+    exit 1
+fi
+
+# ---- Resolve 0K-Talon directory (mirrors talon-paths.ts detectTalonDir) ----
+# Priority: TALON_DIR env → ~/.0k-talon (if present) → project-local → ~/.0k-talon
+resolve_talon_dir() {
+    if [ -n "${TALON_DIR:-}" ]; then
+        # Strip trailing slash for clean paths/logs
+        printf '%s' "${TALON_DIR%/}"
+        return
+    fi
+    if [ -d "$HOME/.0k-talon" ]; then
+        printf '%s' "$HOME/.0k-talon"
+        return
+    fi
+    for d in "$PWD/.0k-talon" "$PWD/0k-talon" "$PWD/.claude-plugin/0k-talon"; do
+        if [ -d "$d" ]; then
+            printf '%s' "$d"
+            return
+        fi
+    done
+    printf '%s' "$HOME/.0k-talon"
+}
+
+TALON_DIR_RESOLVED="$(resolve_talon_dir)"
+STATE_DIR="$TALON_DIR_RESOLVED/state"
+LOGS_DIR="$TALON_DIR_RESOLVED/logs"
+# Filename matches getStateFilePath('gh-policy', 'gh-confirm-token.json'),
+# which joins "<hookName>-<filename>".
+TOKEN_FILE="$STATE_DIR/gh-policy-gh-confirm-token.json"
+AUDIT_LOG="$LOGS_DIR/gh-confirm-audit.jsonl"
+
+mkdir -p "$STATE_DIR" "$LOGS_DIR"
+chmod 700 "$STATE_DIR" "$LOGS_DIR" 2>/dev/null || true
+
+# ---- Compute timestamps ----
+now_epoch=$(date -u +%s)
+expires_epoch=$((now_epoch + ttl_seconds))
+issued_at=$(date -u -r "$now_epoch" +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+expires_at=$(date -u -r "$expires_epoch" +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u -d "@$expires_epoch" +"%Y-%m-%dT%H:%M:%S.000Z")
+
+# Pretty TTL for human-readable output
+if [ "$ttl_seconds" -ge 3600 ]; then
+    ttl_pretty="$((ttl_seconds / 3600))h"
+elif [ "$ttl_seconds" -ge 60 ]; then
+    ttl_pretty="$((ttl_seconds / 60))m"
+else
+    ttl_pretty="${ttl_seconds}s"
+fi
+
+# Escape reason for safe JSON embedding (jq -Rs)
+reason_json=$(printf '%s' "$reason" | jq -Rs .)
+
+# ---- Write token atomically (tmpfile + mv) ----
+tmpfile=$(mktemp "$STATE_DIR/.gh-confirm-token.json.XXXXXX")
+trap 'rm -f "$tmpfile"' EXIT
+
+cat > "$tmpfile" <<EOF
+{
+  "intent": $reason_json,
+  "issued_at": "$issued_at",
+  "expires_at": "$expires_at",
+  "uses_remaining": $uses,
+  "uses_issued": $uses,
+  "issuer_pid": $$,
+  "issuer_ppid": ${PPID:-0}
+}
+EOF
+
+mv "$tmpfile" "$TOKEN_FILE"
+chmod 600 "$TOKEN_FILE"
+
+# ---- Audit log ----
+audit_entry=$(jq -c -n \
+    --arg ts "$issued_at" \
+    --arg event "issue" \
+    --arg intent "$reason" \
+    --arg expires "$expires_at" \
+    --arg pid "$$" \
+    --arg ppid "${PPID:-0}" \
+    --arg uses "$uses" \
+    --arg ttl "$ttl_seconds" \
+    '{timestamp: $ts, event: $event, intent: $intent, expires_at: $expires, issuer_pid: ($pid|tonumber), issuer_ppid: ($ppid|tonumber), uses_issued: ($uses|tonumber), ttl_seconds: ($ttl|tonumber)}')
+echo "$audit_entry" >> "$AUDIT_LOG"
+
+# ---- Confirmation output (no bypass hints — does not name the gh command) ----
+if [ "$uses" -eq 1 ]; then
+    use_label="single use"
+else
+    use_label="$uses uses"
+fi
+echo "✅ Confirm token issued (${ttl_pretty} TTL, ${use_label})"
+echo "   Intent:  $reason"
+echo "   Expires: $expires_at"
+echo "   File:    $TOKEN_FILE"
+echo "   Audit:   $AUDIT_LOG"
+echo ""
+echo "Note: Tier 2 enforcement requires OK_TALON_GH_POLICY=full."
+if [ "$uses" -eq 1 ]; then
+    echo "Next: re-run your Tier 2 gh command via the agent within ${ttl_pretty}."
+    echo "The token is consumed on first use. Re-issue if expired or consumed."
+else
+    echo "Next: the agent has headroom for up to ${uses} matching Tier 2 ops"
+    echo "within ${ttl_pretty}. Each use decrements uses_remaining; file deletes at 0."
+    echo "Re-issue if expired or fully consumed."
+fi
