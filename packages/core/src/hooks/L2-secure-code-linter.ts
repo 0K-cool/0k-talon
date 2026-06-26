@@ -17,6 +17,18 @@
 import { extname, basename } from 'path';
 import { getAuditLogPath, ensureDirectories, secureAppendLog } from './lib/talon-paths';
 import { checkCircuit, recordSuccess, recordFailure } from './lib/circuit-breaker';
+import { isL2SmartTier, isL2ClassifierEnabled, resolveL2Backend } from './lib/classifier';
+import {
+  decideRevert,
+  isWarnOnlyPath,
+  llmSecurityReview,
+  quarantineFile,
+  revertFile,
+  readReviewableContent,
+  type LLMVerdictLabel,
+  type LLMConfidence,
+  type PromptFinding,
+} from './lib/l2-security-review';
 
 const HOOK_NAME = 'L2-secure-code-linter';
 
@@ -51,6 +63,17 @@ interface AuditLogEntry {
   highest_severity: string;
   evaluation_time_ms: number;
   session_id: string;
+  // Smart-tier (OK_TALON_L2_CLASSIFIER=smart) fields. All optional —
+  // populated only when the LLM-review + confidence-aware revert tier runs.
+  smart_tier?: boolean;
+  llm_verdict?: LLMVerdictLabel;
+  llm_confidence?: LLMConfidence;
+  llm_failed?: boolean;
+  llm_latency_ms?: number;
+  reverted?: boolean;
+  revert_method?: 'git' | 'delete';
+  revert_reason?: string;
+  quarantine_path?: string;
 }
 
 // ============================================================================
@@ -340,7 +363,78 @@ async function main() {
       }
     }
 
-    // Log to audit
+    // ========================================================================
+    // SMART TIER (opt-in): LLM security review + confidence-aware revert
+    //
+    // Gated behind OK_TALON_L2_CLASSIFIER=smart. When off (default), the
+    // entire block below is skipped: no LLM call, no revert, no quarantine —
+    // L2 stays the pure static-analysis alerter it has always been.
+    // ========================================================================
+    const smartMode = isL2SmartTier();
+    const warnOnly = isWarnOnlyPath(filePath);
+    const criticalCount = findings.filter(f => f.severity === 'CRITICAL').length;
+
+    let llmVerdict: LLMVerdictLabel | null = null;
+    let llmConfidence: LLMConfidence | null = null;
+    let llmFailed = false;
+    let llmLatencyMs = 0;
+
+    // Run the LLM review only when: smart tier on, a usable backend exists,
+    // and no static CRITICAL already triggered a Tier-1 revert (skip the
+    // call — we'd revert anyway). Warn-only paths still run the review for
+    // visibility, but decideRevert will keep the file regardless.
+    if (smartMode && criticalCount === 0 && isL2ClassifierEnabled()) {
+      const reviewContent = readReviewableContent(filePath);
+      const backend = resolveL2Backend();
+      if (reviewContent && backend) {
+        const langMap2: Record<string, string> = {
+          ts: 'typescript', tsx: 'typescript', mts: 'typescript',
+          js: 'javascript', jsx: 'javascript', mjs: 'javascript',
+          py: 'python',
+        };
+        const ext2 = extname(filePath).slice(1).toLowerCase();
+        const language = langMap2[ext2] || ext2 || 'unknown';
+        const promptFindings: PromptFinding[] = findings.map(f => ({
+          severity: f.severity, rule: f.rule, message: f.message, line: f.line,
+        }));
+        const review = await llmSecurityReview({
+          code: reviewContent,
+          filePath,
+          language,
+          findings: promptFindings,
+          backend,
+          apiKey: process.env.ANTHROPIC_API_KEY,
+        });
+        llmVerdict = review.verdict?.verdict ?? null;
+        llmConfidence = review.verdict?.confidence ?? null;
+        llmFailed = review.failed;
+        llmLatencyMs = review.latencyMs;
+      }
+    }
+
+    // Pure decision: should we revert?
+    const decision = decideRevert({
+      smartMode,
+      staticErrors: criticalCount,
+      llmVerdict,
+      llmConfidence,
+      llmFailed,
+      isWarnOnlyPath: warnOnly,
+    });
+
+    let reverted = false;
+    let revertMethod: 'git' | 'delete' | undefined;
+    let quarantinePath: string | undefined;
+    if (decision.revert) {
+      // Quarantine BEFORE reverting so the flagged code is recoverable.
+      const q = quarantineFile(filePath);
+      quarantinePath = q ?? undefined;
+      const r = revertFile(filePath);
+      reverted = r.success;
+      revertMethod = r.method ?? undefined;
+    }
+
+    // Log to audit (with smart-tier fields when the tier ran)
     const auditEntry: AuditLogEntry = {
       timestamp: new Date().toISOString(),
       tool: data.tool_name,
@@ -350,9 +444,60 @@ async function main() {
       evaluation_time_ms: evaluationTime,
       session_id: data.session_id,
     };
+    if (smartMode) {
+      auditEntry.smart_tier = true;
+      if (llmVerdict) auditEntry.llm_verdict = llmVerdict;
+      if (llmConfidence) auditEntry.llm_confidence = llmConfidence;
+      auditEntry.llm_failed = llmFailed;
+      if (llmLatencyMs) auditEntry.llm_latency_ms = llmLatencyMs;
+      auditEntry.reverted = reverted;
+      if (revertMethod) auditEntry.revert_method = revertMethod;
+      auditEntry.revert_reason = decision.reason;
+      if (quarantinePath) auditEntry.quarantine_path = quarantinePath;
+    }
     logToAudit(auditEntry);
 
-    // Output behavioral defense context for CRITICAL or HIGH findings
+    // ========================================================================
+    // OUTPUT
+    // ========================================================================
+
+    // A revert is high-stakes and must NEVER be silent: surface it loudly via
+    // console.error (human) AND additionalContext (model-facing). Talon has no
+    // Discord/webhook by design — this is the notification.
+    if (reverted) {
+      console.error(`\n🔄 [Code Linter L2] FILE REVERTED — ${basename(filePath)}`);
+      console.error(`   Reason: ${decision.reason}`);
+      console.error(
+        `   Method: ${revertMethod === 'git' ? 'git checkout (restored to last commit)' : 'deleted (new file)'}`,
+      );
+      if (quarantinePath) console.error(`   Quarantine: ${quarantinePath}`);
+      console.error(`   Fix the issue and write again.\n`);
+
+      console.log(JSON.stringify({
+        continue: true,
+        additionalContext:
+          `⚠️ TALON L2 AUTO-REVERT: "${filePath}" was ` +
+          `${revertMethod === 'delete' ? 'DELETED' : 'reverted via git'} — ${decision.reason}. ` +
+          `If this is a FALSE POSITIVE (e.g. security-tool code that contains detection patterns), ` +
+          `review the quarantined copy${quarantinePath ? ` at ${quarantinePath}` : ''} and re-apply, ` +
+          `or add the path to WARN_ONLY_PATHS in lib/l2-security-review.ts. ` +
+          `Static findings: ${findings.map(f => f.rule).join(', ') || 'none'}.`,
+      }));
+      recordSuccess(HOOK_NAME);
+      process.exit(0);
+    }
+
+    // Smart tier, file KEPT but the LLM flagged a concern (LOW-confidence
+    // UNSAFE, warn-only path, or a fail in a warn-only path). Warn loudly so
+    // the kept-but-flagged file isn't invisible.
+    if (smartMode && (llmVerdict === 'UNSAFE' || (llmFailed && warnOnly))) {
+      console.error(`\n⚠️  [Code Linter L2] LLM flagged a concern but file KEPT — ${basename(filePath)}`);
+      console.error(`   ${decision.reason}`);
+      console.error(`   Review manually; auto-revert was skipped.\n`);
+    }
+
+    // Static behavioral-defense alert for CRITICAL or HIGH findings.
+    // (Unchanged from off-mode behavior — preserves the no-regression contract.)
     if (findings.length > 0 && (highestSeverity === 'CRITICAL' || highestSeverity === 'HIGH')) {
       console.error(`\n🔍 [Code Linter L2] Security issues detected in ${basename(filePath)}`);
 

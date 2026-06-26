@@ -89,7 +89,7 @@ _†L3 requires the [MCP Memory Server](https://github.com/modelcontextprotocol/
 
 | Layer | Name | What It Does |
 |-------|------|-------------|
-| **L2** | Secure Code Linter | Post-write security analysis with static analysis + optional LLM review |
+| **L2** | Secure Code Linter | Post-write security analysis: static pattern analysis always-on; LLM-escalation + confidence-aware revert enabled via `OK_TALON_L2_CLASSIFIER=smart` |
 | **L4** | Injection Scanner | Detects prompt injection in tool outputs (89+ patterns, NOVA rules, session escalation for persistent attacks) |
 | **L5** | Output Sanitizer | Scans web and terminal files for XSS vectors and ANSI terminal injection (innerHTML, eval(), OSC 52 clipboard, DCS device control, bracketed paste) |
 | **L7** | Image Safety Scanner | Detects steganography, visual prompt injection, and adversarial content in images |
@@ -269,6 +269,8 @@ Security events log to `~/.0k-talon/logs/` and a summary report generates when y
 | `OSM_API_TOKEN` | OpenSourceMalware.com API key for real-time supply chain scanning | _(none - uses hardcoded blocklist only)_ |
 | `OK_TALON_PROFILE` | Permission profile: `dev`, `audit`, `client-work`, `research` | `dev` |
 | `OK_TALON_PATTERN_TIER` | L4 injection-scanner pattern set: `plugin` (curated) or `full` (broad opt-in) | `plugin` |
+| `OK_TALON_L2_CLASSIFIER` | L2 Secure Code Linter tier: `off` (static-only alert) or `smart` (adds Haiku LLM review + confidence-aware auto-revert/quarantine). Default `off` = no LLM call, no revert | `off` |
+| `OK_TALON_L2_CLASSIFIER_BACKEND` | L2 classifier backend: `cli` (Claude Code MAX), `api` (ANTHROPIC_API_KEY), or unset (auto: CLI preferred) | _(auto)_ |
 | `OK_TALON_L3_CLASSIFIER` | L3 Auto Memory Guardian semantic tier: `off` or `smart` (Haiku-gated DESCRIPTION-class skip) | `off` |
 | `OK_TALON_L3_CLASSIFIER_BACKEND` | L3 classifier backend: `cli` (Claude Code MAX), `api` (ANTHROPIC_API_KEY), or unset (auto: CLI preferred) | _(auto)_ |
 | `OK_TALON_L4_CLASSIFIER` | L4 injection scanner semantic tier: `off` or `smart` (Haiku-gated DESCRIPTION-class alert downgrade) | `off` |

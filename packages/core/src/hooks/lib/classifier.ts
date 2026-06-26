@@ -105,7 +105,11 @@ const LAYER_VARS = {
     tier: { primary: 'OK_TALON_L4_CLASSIFIER', legacy: 'VEX_L4_CLASSIFIER' },
     backend: { primary: 'OK_TALON_L4_CLASSIFIER_BACKEND', legacy: 'VEX_L4_CLASSIFIER_BACKEND' },
   },
-} as const satisfies Record<'L3' | 'L4', { tier: VarSpec; backend: VarSpec }>;
+  L2: {
+    tier: { primary: 'OK_TALON_L2_CLASSIFIER', legacy: 'VEX_L2_CLASSIFIER' },
+    backend: { primary: 'OK_TALON_L2_CLASSIFIER_BACKEND', legacy: 'VEX_L2_CLASSIFIER_BACKEND' },
+  },
+} as const satisfies Record<'L2' | 'L3' | 'L4', { tier: VarSpec; backend: VarSpec }>;
 
 // ---------------------------------------------------------------------------
 // Deprecation-warning machinery (module-scoped, fires at most once per
@@ -228,6 +232,22 @@ export function resolveL4Backend(): Backend | null {
   return resolveBackendForLayer(LAYER_VARS.L4.backend);
 }
 
+/**
+ * L2 counterpart of resolveBackend(). Reads
+ * `OK_TALON_L2_CLASSIFIER_BACKEND` (with `VEX_L2_CLASSIFIER_BACKEND` as a
+ * deprecated fallback); otherwise mirrors the L3 auto-resolution (CLI
+ * preferred, API fallback).
+ *
+ * Used by the L2 Secure Code Linter's opt-in LLM-review tier. Note that
+ * L2 reuses ONLY this backend-resolution + CLI/API invocation plumbing —
+ * its prompt and verdict parsing are security-review specific (see
+ * lib/l2-security-review.ts), NOT the INSTRUCTION/DESCRIPTION
+ * classification that classifyContent() performs for L3/L4.
+ */
+export function resolveL2Backend(): Backend | null {
+  return resolveBackendForLayer(LAYER_VARS.L2.backend);
+}
+
 // ===========================================================================
 // Tier gating
 // ===========================================================================
@@ -267,6 +287,33 @@ export function isClassifierEnabled(): boolean {
  */
 export function isL4ClassifierEnabled(): boolean {
   return isLayerEnabled(LAYER_VARS.L4.tier, resolveL4Backend);
+}
+
+/**
+ * Returns true if the L2 tier toggle is set to `smart`, regardless of
+ * backend availability. The L2 Secure Code Linter uses this to decide
+ * whether the confidence-aware *revert* tier (incl. static-CRITICAL
+ * revert) is active. Backend availability is a separate gate
+ * (isL2ClassifierEnabled) governing whether the LLM review itself runs.
+ *
+ * Reads `OK_TALON_L2_CLASSIFIER` (primary) with `VEX_L2_CLASSIFIER` as a
+ * deprecated fallback. Defaults to false (off) so existing installs see
+ * zero behavior change.
+ */
+export function isL2SmartTier(): boolean {
+  const raw = readLayerEnv(LAYER_VARS.L2.tier);
+  return (raw || 'off').toLowerCase() === 'smart';
+}
+
+/**
+ * L2 counterpart of isClassifierEnabled(). Reads `OK_TALON_L2_CLASSIFIER`
+ * (with `VEX_L2_CLASSIFIER` as deprecated fallback) for the tier toggle
+ * and gates on `resolveL2Backend()`. Returns true only when the LLM
+ * review can actually run (smart tier + usable backend). Static-only
+ * revert decisions are governed by isL2SmartTier() instead.
+ */
+export function isL2ClassifierEnabled(): boolean {
+  return isLayerEnabled(LAYER_VARS.L2.tier, resolveL2Backend);
 }
 
 // ===========================================================================
