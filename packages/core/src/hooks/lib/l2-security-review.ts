@@ -442,6 +442,9 @@ export function quarantineFile(filepath: string): string | null {
     if (!existsSync(filepath)) return null;
     const dir = getQuarantinePath(HOOK_NAME);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    // basename() reduces filepath to a single path segment (no `/`, no `..`), so the
+    // join result is always confined to the quarantine dir — no traversal possible.
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
     const dest = join(dir, `${timestamp}_${basename(filepath)}`);
     copyFileSync(filepath, dest);
     return dest;
