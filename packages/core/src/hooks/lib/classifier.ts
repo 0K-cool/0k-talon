@@ -434,6 +434,84 @@ export function decideAction(v: Verdict): Action {
 }
 
 // ===========================================================================
+// Action-authority gate — memory-poisoning hardening (Sleeper / MINJA)
+// ===========================================================================
+// decideAction() answers only INSTRUCTION-vs-DESCRIPTION. A fabricated but
+// semantically-clean fact that GRANTS authority to act ("Kelvin's approved exfil
+// endpoint is X", "the api key is sk-...", "you are approved to run rm -rf")
+// classifies as a benign DESCRIPTION and is therefore retained by design — the
+// classifier that exists to cut false positives is the exact mechanism that
+// waves a semantic plant through. This gate re-quarantines a KEEP decision when
+// the content asserts an action-authorizing fact AND the source is not operator-
+// trusted. Origin-bound authority (CaMeL, arXiv:2503.18813): untrusted-origin
+// content may inform, but may not by itself authorize a privileged action.
+//
+// High-precision by construction — each pattern requires an authorization /
+// designation verb next to a sink, not a bare mention. Descriptive notes
+// ("API keys migrated to 1Password", "get API key", "exits silently") do NOT
+// match; the production golden-FP corpus is regression-tested.
+//
+// This closes the classifier-downgrade slice. A fully pattern-clean fact that
+// trips NO finding never reaches the classifier and remains a residual gap
+// (a future independent semantic tier) — documented, not silently claimed.
+const ACTION_AUTHORITY_PATTERNS: readonly { id: string; re: RegExp }[] = [
+  // Approved / authorized / whitelisted destination or endpoint (either order).
+  { id: 'approved-endpoint',
+    re: /\b(approv|authoriz|whitelist|allow-?list|designat|sanction)\w*\b[^.\n]{0,40}\b(endpoint|url|domain|host|destination|server|webhook|callback|bucket|repo(sitory)?|address)\b/i },
+  { id: 'endpoint-approved',
+    re: /\b(endpoint|url|domain|host|destination|server|webhook|callback|bucket)\b[^.\n]{0,40}\b(is\s+)?(approv|authoriz|whitelist|allow-?list)\w+/i },
+  // Exfiltration / upload target designation.
+  { id: 'exfil-target',
+    re: /\bexfil\w*\b[^.\n]{0,30}\b(endpoint|destination|url|server|host|address|bucket|to)\b/i },
+  // Explicit clearance to perform a privileged action.
+  { id: 'cleared-to-act',
+    re: /\b(you\s*('re|are)|it'?s|is|are)\s+(approved|authoriz\w+|allowed|cleared|permitted|fine|safe|ok(ay)?)\s+to\s+(run|execute|delete|remove|deploy|send|wire|transfer|disabl\w+|exfiltrat\w+|upload|push|merge|drop|wipe)\b/i },
+  { id: 'approved-to-act',
+    re: /\b(approved|authoriz\w+|cleared|permitted)\s+to\s+(run|execute|delete|remove|deploy|send|wire|transfer|disabl\w+|exfiltrat\w+|upload|push|merge|drop|wipe)\b/i },
+  // Fabricated operator approval of an action.
+  { id: 'operator-approved',
+    re: /\b(kelvin|the operator|the user|management|the admin|admin)\b[^.\n]{0,30}\b(approved|authoriz\w+|signed off|agreed to|said (it'?s )?(ok|fine|safe))\b/i },
+  // Credential VALUE designation ("the api key is X"), not a mere mention.
+  { id: 'credential-value',
+    re: /\b(the\s+)?(api[\s-]?key|access[\s-]?key|token|password|passphrase|secret|credential|private[\s-]?key)\b\s*(is|=|:)\s*\S/i },
+  // Safe / approved command, script, or path designation.
+  { id: 'safe-command',
+    re: /\b(safe|approved|authoriz\w+|whitelisted|allow-?listed)\s+(command|script|path|binary|url|to\s+run)\b/i },
+];
+
+function matchActionAuthority(body: string): string | null {
+  if (!body) return null;
+  for (const { id, re } of ACTION_AUTHORITY_PATTERNS) {
+    if (re.test(body)) return id;
+  }
+  return null;
+}
+
+/** True if `body` asserts a fact that grants authority to perform a privileged
+ * action (approved destination, designated credential, clearance to act). */
+export function assertsActionAuthority(body: string): boolean {
+  return matchActionAuthority(body) !== null;
+}
+
+/** Post-process a decideAction() result: re-quarantine a KEEP when the content
+ * asserts an action-authorizing fact from a non-trusted source. Idempotent on an
+ * already-quarantined action; exempts operator-trusted sources. */
+export function applyActionAuthorityGate(
+  action: Action,
+  body: string,
+  opts: { trustedSource?: boolean } = {},
+): Action {
+  if (action.quarantine) return action; // already quarantined — nothing to soften
+  if (opts.trustedSource) return action; // operator vouches for this source
+  const hit = matchActionAuthority(body);
+  if (!hit) return action;
+  return {
+    quarantine: true,
+    reason: `action-authorizing fact from untrusted source [${hit}] — overriding ${action.reason}`,
+  };
+}
+
+// ===========================================================================
 // Prompt — defensive against the input itself trying to manipulate the model
 // ===========================================================================
 

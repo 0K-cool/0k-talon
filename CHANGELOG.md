@@ -5,6 +5,20 @@ All notable changes to 0K-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-07-06
+
+### Added
+
+- **L3 action-authority gate (memory-poisoning hardening)** — closes the gap where the Haiku smart-classifier, which answers only INSTRUCTION-vs-DESCRIPTION, retains a fabricated but semantically-clean fact that *grants authority to act* ("Kelvin's approved exfil endpoint is X", "the api key is sk-...", "you are approved to run rm -rf"). Such content classifies as a benign DESCRIPTION and was kept by design. The new `applyActionAuthorityGate()` post-processes a downgrade-to-KEEP: when the section asserts an action-authorizing fact (approved destination/endpoint, designated credential value, explicit clearance to run/delete/deploy/send, fabricated operator approval) **and** the source is not operator-trusted, it re-quarantines for review. High-precision patterns (authorization/designation verb next to a sink) — the production golden-FP corpus is regression-tested and unaffected. Wired into both classifier-gate sites (MEMORY.md surgical + topic-file whole-file). Origin-bound authority (CaMeL, arXiv:2503.18813): untrusted-origin content may inform but may not by itself authorize a privileged action.
+
+### Fixed
+
+- **Plugin manifest version drift** — `.claude-plugin/plugin.json` was stuck at 1.8.0 while the packages were at 1.10.0; realigned so the installable plugin reports its true version.
+
+### Notes
+
+- Residual gap (documented, not silently claimed): a fully pattern-clean action-authorizing fact that trips **no** finding never reaches the classifier gate, so it is out of this gate's scope — a future independent semantic tier. The read-time guardian remains the trust boundary (the MCP write path is detection-only per Claude Code bugs #3514/#4669).
+
 ## [1.10.0] - 2026-06-26
 
 ### Added
