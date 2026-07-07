@@ -48,6 +48,7 @@ import {
 import {
   classifyContent,
   decideAction,
+  applyActionAuthorityGate,
   isClassifierEnabled,
   type Verdict,
 } from './lib/classifier';
@@ -315,7 +316,13 @@ async function applyClassifierGate(
       verdict = await classifyContent(section.body, { apiKey });
       setCachedVerdict(hash, verdict, cacheDir);
     }
-    const action = decideAction(verdict);
+    // Content reaching this gate is CRITICAL-flagged and non-trusted (trusted
+    // files skip scanning upstream). Re-quarantine a downgrade-to-KEEP when the
+    // section asserts an action-authorizing fact (approved endpoint, credential,
+    // clearance to act) — the classifier can't see fabricated authority.
+    const action = applyActionAuthorityGate(decideAction(verdict), section.body, {
+      trustedSource: false,
+    });
     resolutions.push({
       title: section.title,
       verdict,
@@ -621,7 +628,11 @@ async function main() {
                 verdict = await classifyContent(body, { apiKey: classifierApiKey });
                 setCachedVerdict(hash, verdict, cacheDir);
               }
-              const action = decideAction(verdict);
+              // Non-trusted topic file (trusted files skip scanning upstream):
+              // re-quarantine a downgrade-to-KEEP that asserts action authority.
+              const action = applyActionAuthorityGate(decideAction(verdict), body, {
+                trustedSource: false,
+              });
               shouldQuarantine = action.quarantine;
               if (!action.quarantine) {
                 classifierSkipped.push({
