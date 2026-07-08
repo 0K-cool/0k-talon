@@ -2,7 +2,7 @@
 
 ![0K-Talon Banner](0k-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.12.0-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.12.0)
+[![Version](https://img.shields.io/badge/version-1.12.1-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.12.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
 [![Security Layers](https://img.shields.io/badge/security_layers-21-critical)](README.md#architecture)
