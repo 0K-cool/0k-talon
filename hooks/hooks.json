@@ -21,6 +21,11 @@
           },
           {
             "type": "command",
+            "command": "bun run ${CLAUDE_PLUGIN_ROOT}/packages/core/src/hooks/L3-memory-file-validation.ts",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
             "command": "bun run ${CLAUDE_PLUGIN_ROOT}/packages/core/src/hooks/L9-egress-scanner.ts",
             "timeout": 5000
           },

@@ -5,6 +5,24 @@ All notable changes to 0K-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-07-07
+
+### Added
+- **L3 file-memory poisoning coverage.** New PreToolUse hook
+  `L3-memory-file-validation` scans Write/Edit/MultiEdit to memory files
+  (`/memory/` paths, `MEMORY.md`) and **hard-blocks** poisoning attempts via exit
+  code 2. Complements the existing `L3-memory-validation` (MCP memory tools,
+  detection-only under CC #3514/#4669) — Write/Edit are ordinary PreToolUse and
+  are not affected by those bugs, so file-memory writes genuinely enforce. Talon
+  installed standalone now protects file-based memory with no external dependency.
+
+### Internal
+- The scanner is a **vendored, dependency-free core** shared verbatim with the
+  canonical in `0K-cool/mnemosyne` (`vendor/memory-scanner-core.ts`). A new
+  `vendor drift check` CI job (`scripts/sync-vendor.sh --check`) fetches the
+  canonical at the pinned ref and fails the build if the vendored copy drifts —
+  one implementation, two plugins, kept in lock-step.
+
 ## [1.11.0] - 2026-07-06
 
 ### Added
