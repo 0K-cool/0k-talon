@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boolean-chain + command-substitution rejection, RAG-command pipeline head, structural pipe
   stages) plus a quote-aware pipe splitter that handles `grep -E "a|b"`. 11 new tests.
   Ported from `0K-cool/vex` PR #92.
+- **Diagnostic allowlist: quote-aware pipe split.** `isDiagnosticBashCommand` now uses the
+  same `splitTopLevelPipes` helper, so a diagnostic pipeline with a `|` inside a quoted arg
+  (e.g. `git log | grep -E "feat|fix"`) is no longer mis-segmented and wrongly scanned.
 
 ## [1.12.1] - 2026-07-07
 

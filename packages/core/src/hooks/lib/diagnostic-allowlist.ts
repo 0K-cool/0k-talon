@@ -137,7 +137,9 @@ export function isDiagnosticBashCommand(command: string | undefined): boolean {
     ...PIPE_STAGE_EXTRA,
   ]);
 
-  const segments = effective.split('|');
+  // Quote-aware split: a `|` inside quotes (e.g. `grep "a|b"`) is not a
+  // pipeline separator. splitTopLevelPipes is hoisted (function decl below).
+  const segments = splitTopLevelPipes(effective);
   for (const seg of segments) {
     const verb = extractLeadingCommand(seg);
     if (!verb) return false;

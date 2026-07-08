@@ -180,6 +180,16 @@ describe('isDiagnosticBashCommand — regression protection', () => {
     expect(isDiagnosticBashCommand('gh pr view 42 --comments')).toBe(true);
   });
 
+  // Quote-aware pipe split: a `|` inside a quoted arg (grep alternation) is
+  // not a pipeline separator. A naive split('|') mis-segmented these and
+  // rejected a legitimate diagnostic pipeline.
+  it('does not treat a quoted pipe as a segment boundary', () => {
+    expect(isDiagnosticBashCommand('git log --oneline | grep -E "feat|fix"')).toBe(true);
+    expect(isDiagnosticBashCommand('ls -la | grep "a|b"')).toBe(true);
+    // Head still must be diagnostic — quoted pipe doesn't smuggle trust.
+    expect(isDiagnosticBashCommand('cat x | grep "a|b"')).toBe(false);
+  });
+
   // Suspicious strings must not be allowlisted when the verb isn't
   // diagnostic.
   it('does not allowlist suspicious non-diagnostic commands', () => {
