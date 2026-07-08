@@ -1,6 +1,6 @@
 {
   "name": "0k-talon",
-  "version": "1.12.1",
+  "version": "1.12.2",
   "description": "21-layer defense-in-depth security for Claude Code - hooks, behavioral directives, and security reports",
   "author": {
     "name": "Kelvin Lomboy",
