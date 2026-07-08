@@ -3,4 +3,4 @@
 # To update: bump `ref` below, run scripts/sync-vendor.sh, commit the result.
 repo=0K-cool/mnemosyne
 path=hooks/memory-scanner-core.ts
-ref=v2.3.7
+ref=v2.3.8

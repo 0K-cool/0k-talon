@@ -5,6 +5,14 @@ All notable changes to 0K-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] - 2026-07-07
+
+### Internal
+- Re-vendor the shared `memory-scanner-core` at mnemosyne **v2.3.8** — the pure core no
+  longer reads `process.env` (the memory dir is now passed in by the harness). Keeps the
+  vendored file genuinely dependency-free; no behavior change for Talon (the file-memory
+  hook uses the `/memory/` path heuristic). `vendor/SOURCE` re-pinned to v2.3.8.
+
 ## [1.12.0] - 2026-07-07
 
 ### Added
