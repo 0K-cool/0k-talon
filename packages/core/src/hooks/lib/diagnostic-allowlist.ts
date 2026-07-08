@@ -137,7 +137,9 @@ export function isDiagnosticBashCommand(command: string | undefined): boolean {
     ...PIPE_STAGE_EXTRA,
   ]);
 
-  const segments = effective.split('|');
+  // Quote-aware split: a `|` inside quotes (e.g. `grep "a|b"`) is not a
+  // pipeline separator. splitTopLevelPipes is hoisted (function decl below).
+  const segments = splitTopLevelPipes(effective);
   for (const seg of segments) {
     const verb = extractLeadingCommand(seg);
     if (!verb) return false;
@@ -152,9 +154,95 @@ export function isDiagnosticBashCommand(command: string | undefined): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// L4 provenance gate — local trusted RAG retrieval
+// ---------------------------------------------------------------------------
+// Output of the local 0k-rag CLI is RETRIEVAL from the user's OWN indexed
+// knowledge base — content the user curated, already gated at index time by
+// the RAG security scanner (L15). Injection patterns surfacing in that output
+// are self-originated, not an untrusted inbound channel. The smart L4
+// classifier can still keep the alert here because a retrieved chunk (e.g. a
+// CISO-book line "Implement tiered admin model") reads as imperative in
+// isolation and the classifier window carries no provenance signal. Treating
+// these commands as a provenance signal DOWNGRADES the alert to LOG (still
+// scanned + audited) rather than firing a CRITICAL human-in-the-loop
+// interruption on the user's own KB.
+const LOCAL_RAG_RETRIEVAL_COMMANDS = new Set<string>([
+  '0k-search', '0k-index', '0k-rag', '0k-vacuum',
+]);
+
+// Structural pipe-stage processors permitted downstream of a RAG command
+// (`0k-search "x" | grep foo | head`). Never grants trust as a pipeline HEAD.
+const RAG_PIPE_STAGE_OK = new Set<string>([
+  'grep', 'rg', 'ag', 'head', 'tail', 'sort', 'uniq',
+  'awk', 'sed', 'cut', 'tr', 'wc', 'tee', 'cat',
+]);
+
+/**
+ * Split on top-level pipes only — a `|` inside single/double quotes (e.g. a
+ * grep alternation `grep -E "ddos|score"`) is NOT a pipeline separator. A
+ * naive String.split('|') would mis-segment such commands and reject a
+ * legitimate RAG-retrieval pipeline. Chain operators (`||`) are already
+ * rejected upstream, so every unquoted `|` here is a genuine pipe.
+ */
+export function splitTopLevelPipes(s: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  for (const c of s) {
+    if (quote) {
+      if (c === quote) quote = null;
+      cur += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      cur += c;
+    } else if (c === '|') {
+      out.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * True iff `command` is a read-only local RAG-retrieval invocation whose
+ * output is the user's own indexed KB. Mirrors isDiagnosticBashCommand's
+ * safety: strips the single allowed `cd … &&` wrapper, rejects boolean
+ * chains / command substitution that could append arbitrary commands, and
+ * requires the pipeline HEAD to be a known 0k-rag command with only
+ * structural processors downstream.
+ */
+export function isTrustedLocalRagRetrieval(command: string | undefined): boolean {
+  if (!command) return false;
+
+  let effective = command.trim();
+  const cdPrefix = /^cd\s+(?:'[^']*'|"[^"]*"|\S+)\s*(?:&&|;)\s+/;
+  const cdMatch = effective.match(cdPrefix);
+  if (cdMatch) effective = effective.slice(cdMatch[0].length);
+
+  // Reject boolean chains / statement separators that introduce new commands.
+  if (/(?:&&|\|\||;(?!\s*$))/.test(effective)) return false;
+  // Reject command substitution outright — no `$(…)` / backticks.
+  if (/\$\(|`/.test(effective)) return false;
+
+  const segments = splitTopLevelPipes(effective);
+  const head = extractLeadingCommand(segments[0]!);
+  if (!head || !LOCAL_RAG_RETRIEVAL_COMMANDS.has(head)) return false;
+  for (let i = 1; i < segments.length; i++) {
+    const verb = extractLeadingCommand(segments[i]!);
+    if (!verb || !RAG_PIPE_STAGE_OK.has(verb)) return false;
+  }
+  return true;
+}
+
 // Exposed for tests / auditing.
 export const _internals = {
   DIAGNOSTIC_COMMANDS,
   PIPE_STAGE_EXTRA,
   WRAPPER_COMMANDS,
+  LOCAL_RAG_RETRIEVAL_COMMANDS,
+  RAG_PIPE_STAGE_OK,
 };
