@@ -40,7 +40,7 @@ The following are in scope:
 
 | Version | Supported |
 |---------|-----------|
-| 1.8.x   | Yes (current) |
-| 1.7.x   | Security fixes only |
-| 1.5.x-1.6.x | Security fixes only |
+| 1.12.x  | Yes (current) |
+| 1.9.x–1.11.x | Security fixes only |
+| 1.5.x–1.8.x | Security fixes only |
 | < 1.5   | No |

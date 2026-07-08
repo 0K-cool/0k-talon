@@ -1,0 +1,6 @@
+# Vendored artifact — DO NOT edit directly. Kept in lock-step with the canonical
+# source by the "vendor drift check" CI step (scripts/sync-vendor.sh + ci.yml).
+# To update: bump `ref` below, run scripts/sync-vendor.sh, commit the result.
+repo=0K-cool/mnemosyne
+path=hooks/memory-scanner-core.ts
+ref=v2.3.7

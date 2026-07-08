@@ -51,6 +51,24 @@ jobs:
             p/security-audit
             p/secrets
 
+  vendor-drift:
+    name: vendor drift check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      # Fetch each vendored artifact from its canonical source at the pinned ref
+      # and fail if the committed copy has drifted. The vendored memory scanner
+      # MUST stay byte-identical to the canonical in 0K-cool/mnemosyne.
+      - name: Check vendored copies against canonical
+        run: |
+          set -eo pipefail
+          ./scripts/sync-vendor.sh --check
+
   tests:
     name: pnpm + turbo
     runs-on: ubuntu-24.04
@@ -61,6 +79,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
+
+      # Hooks execute via Bun (hooks.json: `bun run …`). The subprocess tests
+      # drive a hook through Bun and assert its exit code, so the runner needs it.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: latest
 
       - uses: pnpm/action-setup@b307475762933b98ed359c036b0e51f26b63b74b  # v5.0.0
         # pnpm/action-setup@v5 errors (`Multiple versions of pnpm

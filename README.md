@@ -2,7 +2,7 @@
 
 ![0K-Talon Banner](0k-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.11.0-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.11.0)
+[![Version](https://img.shields.io/badge/version-1.12.0-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.12.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
 [![Security Layers](https://img.shields.io/badge/security_layers-21-critical)](README.md#architecture)
@@ -21,7 +21,7 @@
 
 *Sharp, fast, always watching. Defense-in-depth security that strikes before threats land.*
 
-> **This plugin is not for the faint of heart.** 0K-Talon runs 20 hooks on every tool call and config change — 6 before execution, 6 after, plus session lifecycle, config change, user prompt, subagent stop, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
+> **This plugin is not for the faint of heart.** 0K-Talon runs 21 hooks on every tool call and config change — 7 before execution, 6 after, plus session lifecycle, config change, user prompt, subagent stop, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
 
 Zero cloud dependencies. OWASP LLM 2025 + MITRE ATLAS coverage. Works out of the box.
 
@@ -70,7 +70,7 @@ Most developers run Claude Code with zero security layers. 0K-Talon adds 21.
 
 ## What You Get (Out of the Box)
 
-20 hooks activate automatically after installation (19 security + 1 onboarding). No configuration required.
+21 hooks activate automatically after installation (20 security + 1 onboarding). No configuration required.
 
 ### PreToolUse Hooks (Block Before Execution)
 
@@ -78,12 +78,13 @@ Most developers run Claude Code with zero security layers. 0K-Talon adds 21.
 |-------|------|-------------|
 | **L0** | Secure Code Enforcer | Blocks CRITICAL vulnerabilities (SQL injection, command injection, hardcoded secrets) before code is written |
 | **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, input-side DLP (17 secret patterns), command normalization (anti-evasion), and a GitHub CLI state-mutation guard (gh-policy: tiered block / confirm-token, `OK_TALON_GH_POLICY`). Blocks dangerous operations, modifies risky inputs |
-| **L3** | Memory Validation† | Detects instruction injection, fake facts, and context manipulation in MCP memory operations |
+| **L3** | Memory Validation (MCP)† | Detects instruction injection, fake facts, and context manipulation in MCP memory operations |
+| **L3** | Memory File Validation† | **Hard-blocks** (exit 2) memory-poisoning injection in Write/Edit/MultiEdit to memory files (`/memory/` paths, `MEMORY.md`). Always active — no memory server required |
 | **L9** | Egress Scanner | Prevents data exfiltration via secrets in URLs, bulk data transfer, base64-encoded payloads, and blocked destinations (pastebin, ngrok, webhook.site) |
 | **L14** | Supply Chain Pre-Install | Blocks 60+ known malicious packages before installation. Optional real-time API via OpenSourceMalware.com |
 | **L19** | Skill Scanner | Scans skills for injection patterns, dangerous commands, credential exposure, and external URLs before invocation |
 
-_†L3 requires the [MCP Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) to be configured. Without a memory server, L3 is installed but dormant (no memory operations to monitor). Due to Claude Code bugs [#3514](https://github.com/anthropics/claude-code/issues/3514) and [#4669](https://github.com/anthropics/claude-code/issues/4669), L3 provides detection and alerting only — it cannot block MCP tool calls._
+_†The two L3 hooks cover different memory surfaces. **Memory Validation (MCP)** watches the [MCP Memory Server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) — dormant without one, and due to Claude Code bugs [#3514](https://github.com/anthropics/claude-code/issues/3514) / [#4669](https://github.com/anthropics/claude-code/issues/4669) it provides detection and alerting only (it cannot block MCP tool calls). **Memory File Validation** watches Write/Edit/MultiEdit to memory files and hard-blocks via exit 2 — always active and unaffected by those bugs (Write/Edit are ordinary PreToolUse tools). Both share the same dependency-free scanner core, vendored verbatim from the canonical in [0K-cool/mnemosyne](https://github.com/0K-cool/mnemosyne) and kept in lock-step by a CI drift check — one implementation, no runtime dependency between the plugins._
 
 ### PostToolUse Hooks (Detect After Execution)
 
@@ -207,7 +208,7 @@ git clone https://github.com/0K-cool/0k-talon.git ~/.claude/plugins/0k-talon
 claude --plugin-dir ~/.claude/plugins/0k-talon
 ```
 
-All 20 hooks activate immediately. No build step required — hooks run directly via Bun.
+All 21 hooks activate immediately. No build step required — hooks run directly via Bun.
 
 To load the plugin automatically on every session, add it to your shell config:
 
@@ -226,7 +227,7 @@ alias claude='claude --plugin-dir ~/.claude/plugins/0k-talon'
 
 On your **first session**, Claude will confirm 0K-Talon is active in its first response:
 
-> 🛡️ **New Plugin Installed** — 0K-Talon is active with 20 hooks protecting this session. Run `/0k-talon:status` for a detailed security dashboard.
+> 🛡️ **New Plugin Installed** — 0K-Talon is active with 21 hooks protecting this session. Run `/0k-talon:status` for a detailed security dashboard.
 
 You can also verify at any time:
 
@@ -441,7 +442,7 @@ These tools complement 0K-Talon's pattern-based detection with deeper static ana
 | LLM01 | Prompt Injection | L1 Governor, L4 Injection Scanner, L7 Image Safety, L19 Skill Scanner |
 | LLM02 | Sensitive Information Disclosure | L0 Code Enforcer, L1 Governor (DLP: 17 secret patterns), L9 Egress Scanner, L20 Session Integrity |
 | LLM03 | Supply Chain Vulnerabilities | L14 Pre-Install (block) + Post-Install (audit) |
-| LLM04 | Data and Model Poisoning | L3 Memory Validation†, L15 RAG Security*, L20 Session Integrity |
+| LLM04 | Data and Model Poisoning | L3 Memory Validation† (MCP), L3 Memory File Validation (Write/Edit — blocks), L15 RAG Security*, L20 Session Integrity |
 | LLM05 | Improper Output Handling | L5 Output Sanitizer (XSS + ANSI terminal injection) |
 | LLM06 | Excessive Agency | L9 Egress Scanner, L12 Least Privilege |
 | LLM07 | System Prompt Leakage | L9 Egress Scanner |
