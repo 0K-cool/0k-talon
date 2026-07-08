@@ -5,6 +5,21 @@ All notable changes to 0K-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.2] - 2026-07-08
+
+### Fixed
+- **L4 provenance gate for local RAG retrieval.** Output of the local 0k-rag CLI
+  (`0k-search`/`0k-index`/`0k-rag`/`0k-vacuum`) is retrieval from the user's own indexed
+  KB — self-originated content already gated at index time. The L4 injection scanner now
+  **downgrades such alerts to LOG** (still scanned + audited) instead of firing a CRITICAL
+  human-in-the-loop interrupt on the user's own knowledge base. The smart classifier alone
+  cannot gate this: a retrieved chunk (e.g. `Implement tiered admin model`) reads as
+  imperative in isolation and the classifier window carries no provenance signal. New
+  `isTrustedLocalRagRetrieval()` mirrors the `isDiagnosticBashCommand` hardening (cd-unwrap,
+  boolean-chain + command-substitution rejection, RAG-command pipeline head, structural pipe
+  stages) plus a quote-aware pipe splitter that handles `grep -E "a|b"`. 11 new tests.
+  Ported from `0K-cool/vex` PR #92.
+
 ## [1.12.1] - 2026-07-07
 
 ### Internal

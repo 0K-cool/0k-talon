@@ -33,7 +33,7 @@ import {
   loadInjectionPatterns,
   type InjectionPattern as LoadedPattern,
 } from './lib/config-loader';
-import { isDiagnosticBashCommand } from './lib/diagnostic-allowlist';
+import { isDiagnosticBashCommand, isTrustedLocalRagRetrieval } from './lib/diagnostic-allowlist';
 import {
   applyL4ClassifierGate,
   classifyContent,
@@ -684,7 +684,23 @@ async function main() {
       patternShouldAlert,
       verdict: null,
     });
-    if (
+    // L4 provenance gate (runs before the semantic classifier): output of a
+    // trusted local RAG-retrieval command is the user's own indexed KB, not
+    // an untrusted channel. Downgrade to LOG (still scanned + audited) instead
+    // of firing CRITICAL. Cheaper than a classifier call and robust to the
+    // "retrieved chunk reads as imperative" FP the classifier can't gate.
+    const provenanceTrustedRag =
+      data.tool_name === 'Bash' && isTrustedLocalRagRetrieval(data.tool_input?.command || '');
+    if (patternShouldAlert && provenanceTrustedRag) {
+      classifierGate = {
+        shouldAlert: false,
+        downgraded: true,
+        classifierVerdict: 'DISABLED',
+        classifierConfidence: 0,
+        classifierReasoning: '',
+        decisionReason: 'provenance: trusted local RAG retrieval (own KB) — downgraded to LOG',
+      };
+    } else if (
       patternShouldAlert &&
       scanResult.matches.length > 0 &&
       isL4ClassifierEnabled()
