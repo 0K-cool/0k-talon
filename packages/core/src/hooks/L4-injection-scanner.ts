@@ -498,19 +498,46 @@ function applyEscalation(
 // Scanning Logic
 // ============================================================================
 
-function scanForInjections(content: string): {
+// Bound the fuel a backtracking regex can burn. A single regex match is
+// uninterruptible in JS, so the INPUT CAP is what bounds one slow pattern;
+// the wall-clock budget then bounds ACCUMULATION across patterns. Injection
+// payloads are compact and land early, so 8KB covers the realistic case.
+export const MAX_SCAN_BYTES = 8192;
+const SCAN_BUDGET_MS = 2000;
+
+export function scanForInjections(content: string): {
   detected: boolean;
   matches: InjectionMatch[];
   highestSeverity: InjectionSeverity | null;
   categories: InjectionCategory[];
   normalizedContent: string;
+  scanTruncated?: boolean;
+  scanBudgetExceeded?: boolean;
 } {
   const normalizedContent = normalizeUnicode(content);
   const matches: InjectionMatch[] = [];
   const categoriesSet = new Set<InjectionCategory>();
 
+  // Cap the input fed to backtracking regexes: a vulnerable pattern's cost
+  // grows with input length, so capping bounds worst-case matching time.
+  const scanTruncated = normalizedContent.length > MAX_SCAN_BYTES;
+  const scanContent = scanTruncated ? normalizedContent.slice(0, MAX_SCAN_BYTES) : normalizedContent;
+
+  const scanStart = Date.now();
+  let scanBudgetExceeded = false;
+
   for (const pattern of getActivePatterns()) {
-    const match = normalizedContent.match(pattern.pattern);
+    // Bail loudly if the scan overruns — a scan that can't finish is itself an
+    // alarm (possible ReDoS), never a silent under-scan.
+    if (Date.now() - scanStart > SCAN_BUDGET_MS) {
+      scanBudgetExceeded = true;
+      console.error(
+        `🛑 [L4] scan budget ${SCAN_BUDGET_MS}ms exceeded — stopped early (possible ReDoS). Remaining patterns not run.`
+      );
+      break;
+    }
+
+    const match = scanContent.match(pattern.pattern);
     if (match) {
       matches.push({
         patternId: pattern.id,
@@ -539,6 +566,8 @@ function scanForInjections(content: string): {
     highestSeverity,
     categories: Array.from(categoriesSet),
     normalizedContent,
+    ...(scanTruncated ? { scanTruncated: true } : {}),
+    ...(scanBudgetExceeded ? { scanBudgetExceeded: true } : {}),
   };
 }
 

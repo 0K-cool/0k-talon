@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync, statSync } from 'fs';
 import { join, dirname, resolve } from 'path';
+import { isRedosVulnerable } from '../hooks/lib/redos-guard';
 
 export interface ConfigMetadata {
   version: string;
@@ -129,9 +130,12 @@ export function validatePatterns<T extends { pattern: string; severity?: string 
     if (!p.pattern || typeof p.pattern !== 'string') return false;
     if (p.severity && !VALID_SEVERITIES.has(p.severity)) return false;
     try { new RegExp(p.pattern, 'gi'); } catch { return false; }
-    // ReDoS heuristic: reject patterns with nested quantifiers
-    if (/(\+|\*|\{)\)(\+|\*|\{)/.test(p.pattern)) {
-      console.error(`[ConfigLoader] ${configName}[${i}]: potential ReDoS pattern, skipping`);
+    // ReDoS guard: reject nested UNBOUNDED quantifiers. Fail LOUD — a dropped
+    // pattern is a coverage gap to rewrite, never a silent disappearance.
+    if (isRedosVulnerable(p.pattern)) {
+      console.error(
+        `🛑 [ConfigLoader] ${configName}[${i}]: DROPPED ReDoS-vulnerable pattern (nested unbounded quantifier): ${p.pattern.slice(0, 80)} — rewrite with bounded quantifiers to restore coverage.`
+      );
       return false;
     }
     return true;
