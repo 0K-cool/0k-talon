@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "description": "Pinned descriptor of the Claude Code hook-output contract the Enforcement Canary validates against. A control that 'blocks' in a shape Claude Code ignores is a silent no-op: the hook believes it denied, the tool call proceeds. Tier 1 validates each control's emitted output against THIS pin. Re-validate the pin on every Claude Code upgrade (platform-drift guard) — a stale pin turns healthy installs red.",
+  "pinnedForClaudeCodeVersion": "2.1.207",
+  "lastVerified": "2026-07-15",
+  "PreToolUse": {
+    "decisionEnvelope": "hookSpecificOutput",
+    "requiredFields": {
+      "hookSpecificOutput.hookEventName": "PreToolUse"
+    },
+    "permissionDecisionField": "hookSpecificOutput.permissionDecision",
+    "permissionDecisionEnum": ["allow", "deny", "ask"],
+    "denyValue": "deny",
+    "exitCodeDeny": 2,
+    "exitCodeDenyNote": "Claude Code honors exit code 2 (with stderr) as a PreToolUse block — the legacy 'blocking error' contract. This is how MOST 0K-Talon controls block (L0, L1 Governor, gh-policy, L9): they do NOT emit a JSON envelope. A block is HONORED if EITHER exit==2 OR a valid hookSpecificOutput.permissionDecision=deny. The silent-no-op class is specifically exit==0 AND a decision Claude Code ignores (top-level decision/tool_input). A crash (non-zero exit that is NOT 2, with no decision) is an ERROR, not a block.",
+    "deadFormatSignals": {
+      "description": "Top-level shapes Claude Code IGNORES at exit 0. If a hook emits one of these AND exits 0 (does not use exit-code-2 either), its block is a silent no-op.",
+      "topLevelKeys": ["permissionDecision", "decision", "tool_input", "updatedInput"]
+    }
+  }
+}
