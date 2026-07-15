@@ -137,10 +137,6 @@ interface HookInput {
   agent_type?: string;    // v2.1.69+: agent type (e.g., 'general-purpose', 'Explore')
 }
 
-interface HookOutput {
-  tool_input?: Record<string, any>;
-}
-
 interface Policy {
   name: string;
   tool: string | '*';
@@ -1039,11 +1035,11 @@ async function main() {
     }
 
     if (result.severity === 'CRITICAL' || result.severity === 'HIGH') {
-      if (result.modifiedInput) {
-        console.error(`\n🛡️  [Governor L1] ${result.severity} violation INTERCEPTED`);
+      if (result.action === 'BLOCK') {
+        console.error(`\n🛡️  [Governor L1] ${result.severity} violation BLOCKED`);
         console.error(`    Policy: ${result.policy?.name}`);
         console.error(`    Tool: ${data.tool_name}`);
-        console.error(`    Action: Input modified for safety`);
+        console.error(`    Action: Denied`);
         console.error(`    Message: ${result.message}`);
         console.error('');
       } else {
@@ -1064,14 +1060,36 @@ async function main() {
       }));
     }
 
-    if (result.modifiedInput) {
-      const output: HookOutput & { additionalContext?: string } = {
-        tool_input: result.modifiedInput,
-        additionalContext: `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy?.name}" violated by ${data.tool_name}. ` +
-          `${result.message}. Input was modified to safe alternative.`,
-      };
-      console.log(JSON.stringify(output));
-    } else if (result.policy && result.action === 'WARN') {
+    // A BLOCK policy must DENY through the contract Claude Code honors.
+    //
+    // This previously emitted a top-level `tool_input` rewrite ("safe
+    // alternative") and exited 0. Claude Code ignores that shape: the banner
+    // printed, the audit log said BLOCK, and the ORIGINAL command ran. Every
+    // BLOCK policy was inert — rm -rf, curl|sh, force-push, .env and credential
+    // reads all proceeded. BLOCK policies without a `modify` were equally inert
+    // by a different route: they emitted no decision at all.
+    //
+    // Keying off `action` (not `modifiedInput`) covers both classes. The rewrite
+    // is dropped rather than resurrected via `updatedInput`: silently running
+    // something other than what was asked is its own footgun, and a denial the
+    // agent can read is more honest than a substituted command.
+    if (result.action === 'BLOCK') {
+      console.log(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason:
+              `🛡️ TALON GOVERNOR (L1) ${result.severity}: policy "${result.policy?.name}" blocked ${data.tool_name}. ` +
+              `${result.message}`,
+          },
+        }),
+      );
+      recordSuccess(HOOK_NAME);
+      process.exit(0);
+    }
+
+    if (result.policy && result.action === 'WARN') {
       console.log(JSON.stringify({
         additionalContext: `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
           `${result.message}. Proceeding with caution.`,
