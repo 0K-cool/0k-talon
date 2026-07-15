@@ -1,0 +1,34 @@
+{
+  "description": "Coverage map for the Enforcement Canary. Every Cedar `forbid` control (@id) MUST appear here with EITHER a `corpus` entry (a Tier-1 decoy probe that proves it fires) OR an `exempt` reason. The coverage-guard test fails CI if any forbid is undeclared, if a mapping points at a missing or exempt corpus entry, or if an exemption has no reason — so the corpus can never silently fall behind the policy set. Extend `surface` beyond cedar-forbid (YAML BLOCK, gh-policy tiers, standalone hooks) as those get enumerated.",
+  "surface": "cedar-forbid",
+  "exemptReasons": {
+    "taint-conditioned": "Fires only when session taint/trajectory is already elevated; a fresh SessionStart canary has none. Covered by the Cedar policy validator, which stages the required context, and by a future Tier-2 real-attempt canary with staged taint.",
+    "taint-pollution": "A Tier-1 decoy probe for this control would mutate session taint state (e.g. a decoy .env read escalates to SECRET), tainting the real session at startup. Covered by the Cedar validator. Becomes Tier-1-eligible once the canary's OK_TALON_ENFORCEMENT_CANARY taint-skip lands.",
+    "context-conditioned": "Requires non-default context the probe cannot supply at SessionStart (here: webFetchCount >= 1 plus a sensitivity>=3 resource). Staging it would mean faking session context, which proves the validator, not the live control."
+  },
+  "knownGaps": {
+    "description": "Controls PAI's canary covers that 0K-Talon does not have YET. Listed so the gap is tracked rather than silently absent — these are NOT exemptions, they are missing controls.",
+    "control-plane-self-protection": "0K-Talon's Governor has no control-plane self-protection: writes to the plugin's own hooks/policies/config are not denied, so one Write can disable a layer. PAI closed this (control-plane-policy-write / -hook-write / -security-edit probes). Port the control, then add the three probes here.",
+    "fail-closed-degraded-mode": "No degraded-mode circuit breaker: if the Governor cannot evaluate policy it does not fail closed. Port alongside control-plane self-protection."
+  },
+  "controls": {
+    "forbid-rm-rf-git": { "corpus": "cedar-rm-rf-git" },
+    "forbid-force-push": { "corpus": "git-force-push" },
+    "forbid-curl-pipe-sh": { "corpus": "curl-pipe-sh" },
+
+    "forbid-env-read": { "exempt": "taint-pollution" },
+    "forbid-env-write": { "exempt": "taint-pollution" },
+
+    "forbid-secret-file-read-in-network-context": { "exempt": "context-conditioned" },
+
+    "forbid-confidential-taint-over-10-webfetch": { "exempt": "taint-conditioned" },
+    "forbid-confidential-taint-over-50-shell": { "exempt": "taint-conditioned" },
+    "forbid-consecutive-same-tool-over-20": { "exempt": "taint-conditioned" },
+    "forbid-mcp-external-when-secret-taint": { "exempt": "taint-conditioned" },
+    "forbid-mcp-write-when-confidential-taint": { "exempt": "taint-conditioned" },
+    "forbid-network-when-confidential-taint": { "exempt": "taint-conditioned" },
+    "forbid-network-with-confidential-taint": { "exempt": "taint-conditioned" },
+    "forbid-secret-taint-over-50-calls": { "exempt": "taint-conditioned" },
+    "forbid-shell-network-when-tainted": { "exempt": "taint-conditioned" }
+  }
+}
