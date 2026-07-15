@@ -316,6 +316,17 @@ export function loadCorpus(path: string): Corpus {
     if (!e.name || !e.hook || !e.tool_name) {
       throw new Error(`malformed corpus entry (needs name/hook/tool_name): ${JSON.stringify(e)}`);
     }
+    // An exemption must be argued, not asserted. Without this, one
+    // `canary_exempt: true` silently drops a probe out of enforcement scoring
+    // and the canary still reports green.
+    if (e.canary_exempt && !e.exempt_reason?.trim()) {
+      throw new Error(`corpus entry "${e.name}" is canary_exempt with no exempt_reason — exemptions must be justified`);
+    }
+  }
+  // A corpus of nothing-but-exemptions has no failures and would report a
+  // healthy `0/0`. Zero evaluated controls is never health.
+  if (!c.entries.some((e) => !e.canary_exempt)) {
+    throw new Error(`enforcement-corpus at ${path} has no active probes (all entries exempt) — that is not a healthy canary`);
   }
   return c;
 }
@@ -325,6 +336,8 @@ export function loadCorpus(path: string): Corpus {
 /** One-line statusline segment. `ENFORCEMENT ✅ 5/5` or `ENFORCEMENT ❌ 4/5 (L1 env-read)`. */
 export function formatStatusline(summary: CanarySummary): string {
   if (!summary.ran) return 'ENFORCEMENT ⚠ CANARY DID NOT RUN';
+  // Zero evaluated controls proves nothing — never render it as a green check.
+  if (summary.total === 0) return 'ENFORCEMENT ⚠ NO ACTIVE PROBES (0 controls verified)';
   const first = summary.failures[0];
   if (!first) return `ENFORCEMENT ✅ ${summary.pass}/${summary.total}`;
   const extra = summary.failures.length > 1 ? ` +${summary.failures.length - 1}` : '';

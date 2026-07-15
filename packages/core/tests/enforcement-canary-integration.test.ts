@@ -118,6 +118,53 @@ describe('Enforcement canary — detects the silent no-op class', () => {
   });
 });
 
+describe('Enforcement canary — a hollow corpus can never read as healthy', () => {
+  /** Write a corpus verbatim (bypassing corpusWith's single-probe shape). */
+  function rawCorpus(entries: unknown[]): string {
+    const p = join(dir, 'raw-corpus.json');
+    writeFileSync(p, JSON.stringify({ version: 'test', entries }));
+    return p;
+  }
+
+  it('refuses an exempt-only corpus instead of reporting a green 0/0', () => {
+    const corpus = rawCorpus([
+      {
+        name: 'all-exempt',
+        layer: 'L1',
+        hook: '/nonexistent.ts',
+        tool_name: 'Bash',
+        tool_input: { command: 'x' },
+        expected: 'deny',
+        canary_exempt: true,
+        exempt_reason: 'exempt for the test',
+      },
+    ]);
+    const { state, stderr } = runCanaryProc(corpus);
+    expect(state.ran).toBe(false);
+    expect(state.statusline).not.toMatch(/✅/);
+    expect(stderr).toMatch(/no active probes/i);
+  });
+
+  it('refuses an exemption with no reason (probes cannot be silently dropped)', () => {
+    const hook = fakeHook('exit2.ts', `console.error('blocked'); process.exit(2);`);
+    const corpus = rawCorpus([
+      { name: 'real', layer: 'L1', hook, tool_name: 'Bash', tool_input: { command: 'x' }, expected: 'deny' },
+      {
+        name: 'snuck-out',
+        layer: 'L1',
+        hook,
+        tool_name: 'Bash',
+        tool_input: { command: 'y' },
+        expected: 'deny',
+        canary_exempt: true,
+      },
+    ]);
+    const { state, stderr } = runCanaryProc(corpus);
+    expect(state.ran).toBe(false);
+    expect(stderr).toMatch(/exempt_reason/);
+  });
+});
+
 describe('Enforcement canary — throttle (distributed-plugin cost guard)', () => {
   it('skips a re-run inside the throttle window after a clean pass', () => {
     const hook = fakeHook('exit2.ts', `console.error('blocked'); process.exit(2);`);

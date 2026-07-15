@@ -90,8 +90,12 @@ describe('Enforcement coverage guard — Cedar forbid surface', () => {
   it('known gaps are recorded as gaps, not disguised as exemptions', () => {
     // Missing controls must never be laundered into exemptReasons — an exemption
     // says "proven elsewhere", a gap says "not built yet". Conflating them is how
-    // a hole starts reading as covered.
-    expect(Object.keys(map.knownGaps ?? {}).length).toBeGreaterThan(1);
+    // a hole starts reading as covered. Assert each gap BY NAME: a count would
+    // pass on `description` alone, so deleting a real gap would go unnoticed.
     expect(map.knownGaps).toHaveProperty('control-plane-self-protection');
+    expect(map.knownGaps).toHaveProperty('fail-closed-degraded-mode');
+    for (const [k, v] of Object.entries(map.knownGaps ?? {})) {
+      expect(String(v).length, `knownGaps.${k} needs a real description`).toBeGreaterThan(20);
+    }
   });
 });

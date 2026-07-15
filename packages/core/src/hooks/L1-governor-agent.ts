@@ -5,19 +5,22 @@
  *
  * Purpose: Real-time policy enforcement before tool execution
  * Pattern: Sidecar Pattern (independent monitoring)
- * Action: BLOCK (exit code 2) or INPUT MODIFICATION
+ * Action: DENY via hookSpecificOutput.permissionDecision, or exit code 2
  * OWASP: LLM02 (Sensitive Information Disclosure), LLM01 (Prompt Injection)
  *
- * Key Capability: Can MODIFY tool inputs before execution to prevent violations
- * - Dangerous commands → safe echo messages
- * - Sensitive file reads → blocked file paths
- * - Destructive operations → neutralized
+ * A BLOCK policy DENIES the call. It does not rewrite tool inputs: the Governor
+ * used to emit a top-level `tool_input` "safe alternative" and exit 0, which
+ * Claude Code ignores — every BLOCK was a silent no-op while the banner and the
+ * audit log both claimed enforcement. Denials must be expressed in a shape the
+ * harness acts on, and must be verified at the EFFECT level (see
+ * tests/governor-block-enforcement.test.ts and the Enforcement Canary), never by
+ * asserting on an internal `action: 'BLOCK'` constant.
  *
  * 0K-Talon v0.1.0
  */
 
-import { join, basename } from 'path';
-import { TALON_DIR, getAuditLogPath, ensureDirectories, secureAppendLog, getStateFilePath } from './lib/talon-paths';
+import { basename } from 'path';
+import { getAuditLogPath, ensureDirectories, secureAppendLog, getStateFilePath } from './lib/talon-paths';
 import { classifyGhCommand, GhTier, checkConfirmToken, consumeConfirmToken } from './lib/gh-policy';
 import { checkCircuit, recordSuccess, recordFailure } from './lib/circuit-breaker';
 import { normalizeUnicode } from './lib/unicode-normalize';
@@ -144,17 +147,17 @@ interface Policy {
   action: 'BLOCK' | 'WARN';
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
   message: string;
-  modify?: (params: Record<string, any>) => Record<string, any> | null;
 }
 
 interface AuditLogEntry {
   timestamp: string;
   tool: string;
   parameters: Record<string, any>;
-  modified_input?: Record<string, any>;
   policy_matched: string | null;
   action: 'BLOCK' | 'WARN' | 'ALLOW';
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'NONE';
+  /** Always false: the Governor denies, it never rewrites inputs. Retained so
+   *  existing audit-log consumers keep parsing. */
   input_modified: boolean;
   message: string;
   evaluation_time_ms: number;
@@ -222,9 +225,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot read .env files (contains secrets)',
-    modify: (_params) => ({
-      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_ENV_READ.txt')
-    }),
   },
   {
     name: 'block-env-writes',
@@ -236,10 +236,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot write production .env files via Write tool',
-    modify: (_params) => ({
-      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_ENV_WRITE.txt'),
-      content: `[GOVERNOR BLOCKED]\n\nAttempted write to .env file was blocked.\nReason: .env files contain secrets and should be edited manually.`
-    }),
   },
   {
     name: 'block-env-edits',
@@ -251,11 +247,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot edit .env files via Edit tool',
-    modify: (_params) => ({
-      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_ENV_EDIT.txt'),
-      old_string: '',
-      new_string: `[GOVERNOR BLOCKED]\n\nReason: .env files should be edited manually.`
-    }),
   },
 
   // === CRITICAL: Credential File Protection (GitHub #34819) ===
@@ -273,9 +264,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot read credential files — contains authentication tokens',
-    modify: (_params) => ({
-      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_CREDENTIAL_READ.txt')
-    }),
   },
   {
     name: 'block-credential-file-bash-reads',
@@ -291,9 +279,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot display credential files via Bash — contains authentication tokens',
-    modify: (_params) => ({
-      command: 'echo "[GOVERNOR BLOCKED] Credential file display blocked. Use environment variables or secret managers for credential access."'
-    }),
   },
 
   // === CRITICAL: Private Key Protection ===
@@ -309,9 +294,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Private key detected in staged changes',
-    modify: (_params) => ({
-      command: `echo "[GOVERNOR BLOCKED] Private key detected in staged changes. Remove before committing."`
-    }),
   },
 
   // === CRITICAL: Protected Folders (macOS) ===
@@ -325,9 +307,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot access ~/Documents - protected folder',
-    modify: (_params) => ({
-      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_PROTECTED_FOLDER.txt')
-    }),
   },
   {
     name: 'block-desktop-access',
@@ -339,9 +318,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'CRITICAL',
     message: 'Cannot access ~/Desktop - protected folder',
-    modify: (_params) => ({
-      file_path: join(TALON_DIR, 'GOVERNOR_BLOCKED_PROTECTED_FOLDER.txt')
-    }),
   },
 
   // === HIGH: Dangerous Bash Commands ===
@@ -375,9 +351,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'HIGH',
     message: 'Dangerous pattern: download-and-execute detected - download and review scripts before executing',
-    modify: (_params) => ({
-      command: `echo "[GOVERNOR BLOCKED] Dangerous pattern: download-and-execute. Download and review scripts before executing."`
-    }),
   },
   {
     name: 'block-rm-rf-critical',
@@ -395,9 +368,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'HIGH',
     message: 'Destructive rm -rf on critical directory detected',
-    modify: (_params) => ({
-      command: `echo "[GOVERNOR BLOCKED] Dangerous rm -rf operation. Verify path manually if needed."`
-    }),
   },
   {
     name: 'block-force-push-main',
@@ -411,9 +381,6 @@ const POLICIES: Policy[] = [
     action: 'BLOCK',
     severity: 'HIGH',
     message: 'Force push to main/master is destructive',
-    modify: (_params) => ({
-      command: `echo "[GOVERNOR BLOCKED] Force push to main/master. Use: git push --force-with-lease instead."`
-    }),
   },
   {
     name: 'warn-git-reset-hard',
@@ -635,7 +602,6 @@ function evaluatePolicies(tool: string, params: Record<string, any>): {
   action: 'BLOCK' | 'WARN' | 'ALLOW';
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'NONE';
   message: string;
-  modifiedInput: Record<string, any> | null;
 } {
   const severityOrder: Array<'CRITICAL' | 'HIGH' | 'MEDIUM'> = ['CRITICAL', 'HIGH', 'MEDIUM'];
 
@@ -646,17 +612,11 @@ function evaluatePolicies(tool: string, params: Record<string, any>): {
       if (policy.tool !== '*' && policy.tool !== tool) continue;
 
       if (policy.match(tool, params)) {
-        let modifiedInput: Record<string, any> | null = null;
-        if (policy.modify && policy.action === 'BLOCK') {
-          modifiedInput = policy.modify(params);
-        }
-
         return {
           policy,
           action: policy.action,
           severity: policy.severity,
           message: policy.message,
-          modifiedInput,
         };
       }
     }
@@ -667,7 +627,6 @@ function evaluatePolicies(tool: string, params: Record<string, any>): {
     action: 'ALLOW',
     severity: 'NONE',
     message: 'No policy violations detected',
-    modifiedInput: null,
   };
 }
 
@@ -988,11 +947,10 @@ async function main() {
       timestamp: new Date().toISOString(),
       tool: data.tool_name,
       parameters: sanitizeParameters(params),
-      modified_input: result.modifiedInput ? sanitizeParameters(result.modifiedInput) : undefined,
       policy_matched: result.policy?.name || null,
       action: result.action,
       severity: result.severity,
-      input_modified: result.modifiedInput !== null,
+      input_modified: false,
       message: result.message,
       evaluation_time_ms: evaluationTime,
       session_id: data.session_id,
@@ -1052,7 +1010,7 @@ async function main() {
     }
 
     // DLP context injection (warn AI about leaked secrets)
-    if (dlpFindings.length > 0 && !result.modifiedInput) {
+    if (dlpFindings.length > 0 && result.action !== 'BLOCK') {
       const dlpTypes = dlpFindings.map(f => f.secretType).join(', ');
       console.log(JSON.stringify({
         additionalContext: `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
@@ -1066,10 +1024,10 @@ async function main() {
     // alternative") and exited 0. Claude Code ignores that shape: the banner
     // printed, the audit log said BLOCK, and the ORIGINAL command ran. Every
     // BLOCK policy was inert — rm -rf, curl|sh, force-push, .env and credential
-    // reads all proceeded. BLOCK policies without a `modify` were equally inert
+    // reads all proceeded. BLOCK policies with no rewrite were equally inert
     // by a different route: they emitted no decision at all.
     //
-    // Keying off `action` (not `modifiedInput`) covers both classes. The rewrite
+    // Keying off `action` covers both classes. The rewrite path
     // is dropped rather than resurrected via `updatedInput`: silently running
     // something other than what was asked is its own footgun, and a denial the
     // agent can read is more honest than a substituted command.
