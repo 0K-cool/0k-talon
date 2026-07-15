@@ -5,6 +5,70 @@ All notable changes to 0K-Talon will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-07-15
+
+### Security
+
+- **L1 Governor: every `BLOCK` policy was a silent no-op.** The Governor signalled a
+  block by emitting a top-level `tool_input` "safe alternative" and exiting 0 — a shape
+  Claude Code ignores. The banner printed, the audit log recorded `BLOCK`, and **the
+  original command ran**. All 21 BLOCK policies were affected, by two routes: 11 emitted
+  the ignored rewrite, 10 emitted no decision at all.
+
+  Operations that were **not** actually blocked in ≤1.12.2:
+
+  | Class | Policies |
+  |-------|----------|
+  | Destructive | `block-rm-rf-critical` |
+  | Remote code execution | `block-curl-pipe-sh` |
+  | Git safety | `block-force-push-main`, `block-private-key-commits` |
+  | Secrets | `block-env-reads` / `-writes` / `-edits`, `block-credential-file-reads` / `-bash-reads` |
+  | Filesystem | `block-documents-access`, `block-desktop-access` |
+  | Other | `block-sandbox-disable`, `block-anthropic-base-url-override`, and the remaining BLOCK rules |
+
+  BLOCK now denies via `hookSpecificOutput.permissionDecision`. **L0, gh-policy, L9, and the
+  L3 memory-file hooks were never affected** — they block via exit code 2.
+
+  If you relied on L1 to stop any of the above, treat ≤1.12.2 as providing **no** L1
+  enforcement and audit your session history accordingly. Upgrade to 1.13.0.
+
+- **L4 ReDoS engine guard.** External NOVA/0din patterns were compiled and run behind a
+  heuristic that missed the `(x{2,})+` shape while false-positiving on bounded quantifiers
+  (it had silently disabled two real detection patterns — see 1.12.1). Replaced with one
+  calibrated guard: vulnerable patterns are dropped **loudly** at load, scans are capped at
+  8KB of input with a 2s wall-clock budget, and the `nova-encoding_hexunicode-hex-array`
+  pattern was rewritten with bounded quantifiers rather than dropped. The static drop is the
+  only defense against the exponential class — `(a+)+$` takes ~28s on a 30-byte input, where
+  no input cap helps.
+
+### Added
+
+- **Enforcement Canary (Tier 1)** — continuous control validation at SessionStart. Spawns each
+  control with a decoy MUST-BLOCK payload and validates the emitted decision against a pinned
+  hook-output contract, so a control that stops enforcing surfaces immediately instead of
+  silently. It found the L1 no-op above on its first run.
+  - Fail-loud, never fail-shut: always exits 0. A canary that cannot run is itself an alarm.
+  - Honors either exit-2 or a `permissionDecision` deny, matching both 0K-Talon blocking styles.
+  - Throttled to once per 24h (`OK_TALON_CANARY_THROTTLE_HOURS`); a failed run is never throttled.
+  - Deterministic probes only — a red banner a user cannot act on trains them to ignore it.
+  - Refuses a corpus with no active probes or with unjustified exemptions; zero evaluated
+    controls never renders as a green check.
+  - State: `state/enforcement-canary.json`.
+- **Coverage guard** — CI fails if any Cedar `forbid` lacks a corpus probe or a reasoned
+  exemption, so the corpus cannot silently fall behind the policy set. Known gaps
+  (control-plane self-protection, fail-closed degraded mode) are tracked as gaps, not
+  laundered into exemptions.
+
+### Changed
+
+- The Governor no longer rewrites tool inputs. The `modify` path (11 policy rewrites plus the
+  `Policy.modify` member) is removed rather than re-pointed at `updatedInput`: silently running
+  something other than what was requested is its own footgun, and a denial the agent can read is
+  more honest than a substituted command. Audit entries no longer report `modified_input`;
+  `input_modified` remains, always `false`, so existing log consumers keep parsing.
+- README hook counts corrected to 23 (22 security + 1 onboarding); the previous "21" undercounted
+  by one independently of this release.
+
 ## [1.12.2] - 2026-07-08
 
 ### Fixed
