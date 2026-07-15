@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { CONFIG_DIR } from './talon-paths';
+import { isRedosVulnerable } from './redos-guard';
 
 // ============================================================================
 // Types
@@ -287,9 +288,13 @@ export function validatePatterns<T extends { pattern: string; severity?: string;
       return false;
     }
 
-    // ReDoS heuristic: reject patterns with nested quantifiers like (a+)+ or (a*)*
-    if (/(\+|\*|\{)\)(\+|\*|\{)/.test(p.pattern) || /(\+|\*)\{/.test(p.pattern)) {
-      console.error(`[ConfigLoader] ${configName}[${i}]: potential ReDoS pattern detected, skipping`);
+    // ReDoS guard: reject nested UNBOUNDED quantifiers like (a+)+ or (x{2,})*.
+    // Fail LOUD — a dropped pattern is a coverage gap that must be rewritten
+    // with bounded quantifiers, never a silent disappearance.
+    if (isRedosVulnerable(p.pattern)) {
+      console.error(
+        `🛑 [ConfigLoader] ${configName}[${i}]: DROPPED ReDoS-vulnerable pattern (nested unbounded quantifier): ${p.pattern.slice(0, 80)} — rewrite with bounded quantifiers to restore coverage.`
+      );
       return false;
     }
 

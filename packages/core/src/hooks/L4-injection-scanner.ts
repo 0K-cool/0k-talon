@@ -33,6 +33,7 @@ import {
   loadInjectionPatterns,
   type InjectionPattern as LoadedPattern,
 } from './lib/config-loader';
+import { MAX_SCAN_BYTES, SCAN_BUDGET_MS } from './lib/redos-guard';
 import { isDiagnosticBashCommand, isTrustedLocalRagRetrieval } from './lib/diagnostic-allowlist';
 import {
   applyL4ClassifierGate,
@@ -498,19 +499,41 @@ function applyEscalation(
 // Scanning Logic
 // ============================================================================
 
-function scanForInjections(content: string): {
+export function scanForInjections(content: string): {
   detected: boolean;
   matches: InjectionMatch[];
   highestSeverity: InjectionSeverity | null;
   categories: InjectionCategory[];
   normalizedContent: string;
+  scanTruncated?: boolean;
+  scanBudgetExceeded?: boolean;
 } {
-  const normalizedContent = normalizeUnicode(content);
+  // Cap BEFORE normalizing: normalization walks the whole string, so capping
+  // afterwards would leave that pass unbounded. Everything downstream then
+  // works on at most MAX_SCAN_BYTES of input.
+  const scanTruncated = content.length > MAX_SCAN_BYTES;
+  const cappedContent = scanTruncated ? content.slice(0, MAX_SCAN_BYTES) : content;
+
+  const normalizedContent = normalizeUnicode(cappedContent);
+  const scanContent = normalizedContent;
   const matches: InjectionMatch[] = [];
   const categoriesSet = new Set<InjectionCategory>();
 
+  const scanStart = Date.now();
+  let scanBudgetExceeded = false;
+
   for (const pattern of getActivePatterns()) {
-    const match = normalizedContent.match(pattern.pattern);
+    // Bail loudly if the scan overruns — a scan that can't finish is itself an
+    // alarm (possible ReDoS), never a silent under-scan.
+    if (Date.now() - scanStart > SCAN_BUDGET_MS) {
+      scanBudgetExceeded = true;
+      console.error(
+        `🛑 [L4] scan budget ${SCAN_BUDGET_MS}ms exceeded — stopped early (possible ReDoS). Remaining patterns not run.`
+      );
+      break;
+    }
+
+    const match = scanContent.match(pattern.pattern);
     if (match) {
       matches.push({
         patternId: pattern.id,
@@ -539,6 +562,8 @@ function scanForInjections(content: string): {
     highestSeverity,
     categories: Array.from(categoriesSet),
     normalizedContent,
+    ...(scanTruncated ? { scanTruncated: true } : {}),
+    ...(scanBudgetExceeded ? { scanBudgetExceeded: true } : {}),
   };
 }
 

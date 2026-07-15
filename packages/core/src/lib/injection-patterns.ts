@@ -15,6 +15,7 @@
  */
 
 import { loadInjectionConfig, type InjectionPattern as ConfigPattern } from './config-loader';
+import { isRedosVulnerable, MAX_SCAN_BYTES, SCAN_BUDGET_MS } from '../hooks/lib/redos-guard';
 import { normalizeUnicode as normalizeForScanning, INVISIBLE_CHARS } from '../hooks/lib/unicode-normalize';
 
 // ============================================================================
@@ -251,14 +252,42 @@ function loadExternalPatterns(): InjectionPattern[] {
       return INJECTION_PATTERNS;
     }
 
-    const externalPatterns: InjectionPattern[] = config.patterns.map((p: ConfigPattern) => ({
-      id: p.id,
-      category: p.category as InjectionCategory,
-      severity: p.severity as InjectionSeverity,
-      pattern: new RegExp(p.pattern, 'i'),
-      description: p.description,
-      example: Array.isArray(p.examples) ? p.examples[0] : undefined,
-    }));
+    // Compile external patterns, dropping any that are ReDoS-vulnerable or fail
+    // to compile. Fail LOUD: a dropped pattern is a coverage gap that must be
+    // rewritten, never a silent disappearance.
+    const externalPatterns: InjectionPattern[] = [];
+    let droppedRedos = 0;
+    let droppedInvalid = 0;
+    for (const p of config.patterns as ConfigPattern[]) {
+      if (isRedosVulnerable(p.pattern)) {
+        droppedRedos++;
+        console.error(
+          `🛑 [InjectionPatterns] DROPPED ReDoS-vulnerable pattern [${p.id}] (nested unbounded quantifier): ${p.pattern.slice(0, 80)}`
+        );
+        continue;
+      }
+      try {
+        externalPatterns.push({
+          id: p.id,
+          category: p.category as InjectionCategory,
+          severity: p.severity as InjectionSeverity,
+          pattern: new RegExp(p.pattern, 'i'),
+          description: p.description,
+          example: Array.isArray(p.examples) ? p.examples[0] : undefined,
+        });
+      } catch (e) {
+        droppedInvalid++;
+        console.error(`⚠️  [InjectionPatterns] skipped invalid pattern [${p.id}]: ${e}`);
+      }
+    }
+    if (droppedRedos > 0) {
+      console.error(
+        `🛑 [InjectionPatterns] ${droppedRedos} ReDoS-vulnerable pattern(s) DROPPED — rewrite with bounded quantifiers to restore coverage.`
+      );
+    }
+    if (droppedInvalid > 0) {
+      console.error(`⚠️  [InjectionPatterns] ${droppedInvalid} invalid pattern(s) skipped.`);
+    }
 
     const externalIds = new Set(externalPatterns.map(p => p.id));
     const hardcodedOnly = INJECTION_PATTERNS.filter(p => !externalIds.has(p.id));
@@ -362,6 +391,10 @@ export function isCodeSyntaxContext(
 export interface ExtendedScanResult extends ScanResult {
   unicodeObfuscationDetected: boolean;
   normalizedContent?: string;
+  /** Input exceeded MAX_SCAN_BYTES and was capped (ReDoS fuel limit). */
+  scanTruncated?: boolean;
+  /** Wall-clock budget hit — scan stopped early (possible ReDoS). */
+  scanBudgetExceeded?: boolean;
 }
 
 /**
@@ -380,29 +413,49 @@ export function scanForInjections(
     CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1,
   };
 
-  const unicodeObfuscationDetected = hasUnicodeObfuscation(content);
-  const normalizedContent = normalizeForScanning(content);
+  // Cap BEFORE the pre-passes: hasUnicodeObfuscation and normalizeForScanning
+  // both walk the whole string, so capping afterwards would leave them
+  // unbounded. Everything downstream works on at most MAX_SCAN_BYTES of input.
+  const scanTruncated = content.length > MAX_SCAN_BYTES;
+  const cappedContent = scanTruncated ? content.slice(0, MAX_SCAN_BYTES) : content;
+
+  const unicodeObfuscationDetected = hasUnicodeObfuscation(cappedContent);
+  const normalizedContent = normalizeForScanning(cappedContent);
+  const scanContent = normalizedContent;
   const activePatterns = getActivePatterns();
+
+  const scanStart = Date.now();
+  let scanBudgetExceeded = false;
 
   for (const pattern of activePatterns) {
     if (matches.length >= maxMatches) break;
+
+    // Bail loudly if the scan overruns — a scan that can't finish is itself an
+    // alarm (possible ReDoS), never a silent under-scan.
+    if (Date.now() - scanStart > SCAN_BUDGET_MS) {
+      scanBudgetExceeded = true;
+      console.error(
+        `🛑 [InjectionScanner] scan budget ${SCAN_BUDGET_MS}ms exceeded — stopped early (possible ReDoS). Remaining patterns not run.`
+      );
+      break;
+    }
 
     // Reset lastIndex for safety. Currently a no-op since patterns lack 'g' flag,
     // but guards against future modifications that add global flag or pattern reuse.
     // If 'g' patterns are added, clone RegExp per-call to avoid stale lastIndex.
     pattern.pattern.lastIndex = 0;
-    const match = pattern.pattern.exec(normalizedContent);
+    const match = pattern.pattern.exec(scanContent);
 
     if (match) {
       // Code syntax exclusion: skip matches inside argparse/Click/Typer kwargs.
       // These are API-surface tokens, never prompt-injection prose.
-      if (contextAware && isCodeSyntaxContext(content, match.index, match[0].length)) {
+      if (contextAware && isCodeSyntaxContext(cappedContent, match.index, match[0].length)) {
         continue;
       }
 
       let effectiveSeverity = pattern.severity;
 
-      if (contextAware && isDocumentationContext(content, match.index, match[0].length)) {
+      if (contextAware && isDocumentationContext(cappedContent, match.index, match[0].length)) {
         if (pattern.severity === 'CRITICAL' || pattern.severity === 'HIGH') {
           effectiveSeverity = 'LOW';
         } else {
@@ -433,6 +486,8 @@ export function scanForInjections(
     highestSeverity,
     categories: Array.from(categories),
     unicodeObfuscationDetected,
+    ...(scanTruncated ? { scanTruncated: true } : {}),
+    ...(scanBudgetExceeded ? { scanBudgetExceeded: true } : {}),
   };
 
   if (unicodeObfuscationDetected) {

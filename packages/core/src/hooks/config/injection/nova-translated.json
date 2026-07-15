@@ -4097,7 +4097,7 @@
       "id": "nova-encoding_hexunicode-hex-array",
       "category": "encoding",
       "severity": "MEDIUM",
-      "pattern": "0x[0-9a-fA-F]{2}(\\s*,?\\s*0x[0-9a-fA-F]{2}){5,}",
+      "pattern": "0x[0-9a-fA-F]{2}(?:[\\s,]{0,3}0x[0-9a-fA-F]{2}){5,20}",
       "flags": "i",
       "description": "NOVA: Detects hex and Unicode encoded payloads (hex_array)",
       "examples": [],
