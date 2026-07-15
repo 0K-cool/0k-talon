@@ -91,9 +91,10 @@ const TIER_1_BLOCK: PatternRule[] = [
     operation: 'gpg-key mutation',
     reason: 'GPG key changes are operator-only',
   },
-  // gh api with a DELETE method — matches `-X DELETE`, `--method DELETE`, and `--method=DELETE`
+  // gh api with a DELETE method. `[\s=]*` (not `+`) also catches the glued
+  // `-XDELETE` form (which gh/curl accept), not just `-X DELETE` / `--method=DELETE`.
   {
-    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)[\s=]+DELETE\b/i,
+    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)[\s=]*DELETE\b/i,
     operation: 'api DELETE',
     reason: 'Raw DELETE API calls are operator-only',
   },
@@ -142,11 +143,18 @@ const TIER_2_CONFIRM: PatternRule[] = [
     operation: 'variable set',
     reason: 'Setting variables requires operator confirmation',
   },
-  // gh api write methods — matches `-X PUT`, `--method POST`, and `--method=PATCH`
+  // gh api write methods (`[\s=]*` also catches the glued `-XPOST` form).
   {
-    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)[\s=]+(?:PUT|POST|PATCH)\b/i,
+    pattern: /\bgh\s+api\b[^|;&]*?(?:-X|--method)[\s=]*(?:PUT|POST|PATCH)\b/i,
     operation: 'api write',
     reason: 'Raw write API calls require operator confirmation',
+  },
+  // gh api graphql with a mutation — a GraphQL mutation is a write (and can be
+  // destructive, e.g. deleteRepository). Reads (query only, no "mutation") stay ALLOW.
+  {
+    pattern: /\bgh\s+api\s+graphql\b[^|;&]*mutation/i,
+    operation: 'api graphql mutation',
+    reason: 'GraphQL mutations are writes and require operator confirmation',
   },
 ];
 
@@ -162,6 +170,68 @@ const TIER_2_CONFIRM: PatternRule[] = [
  */
 function neutralizeEscapes(cmd: string): string {
   return cmd.replace(/\\(['"])/g, '').replace(/\\(.)/g, '$1');
+}
+
+/**
+ * De-obfuscate a command's TOKEN structure before classification. Undoes the
+ * command-name/whitespace obfuscations that hid a gh op from the regex classifier:
+ *
+ *   "gh" repo delete           quote-spliced command name
+ *   g"h" repo delete           split-quote command name
+ *   gh repo "delete"           quoted verb
+ *   gh${IFS}repo${IFS}delete   $IFS word-splitting
+ *
+ * Both moves are SAFE — they cannot fabricate a multi-word gh-op phrase, because a
+ * phrase's internal spaces must be REAL separators:
+ *  1. `$IFS` / `${IFS…}` → a real space (bash word-splits on it).
+ *  2. Unquote whitespace-FREE quoted spans only. A multi-word quoted span (a commit
+ *     message / echo arg) keeps its quotes and is removed later as DATA by
+ *     stripBalancedQuotes — so this never re-exposes quoted data as a command.
+ */
+function defuseObfuscation(cmd: string): string {
+  let s = neutralizeEscapes(cmd);
+  s = s.replace(/\$\{IFS[^}]*\}/g, ' ').replace(/\$IFS(?![A-Za-z0-9_])/g, ' ');
+  s = s.replace(/"([^"\s]*)"/g, '$1').replace(/'([^'\s]*)'/g, '$1');
+  return s;
+}
+
+/** Sentinel marking a collapsed dynamic span (no internal whitespace). */
+const DYN = '\x00DYN\x00';
+
+/**
+ * Collapse `$( … )`, backtick, and `${ … }` spans to a whitespace-free sentinel,
+ * so a dynamically-assembled command name (`g$(echo h)`) becomes a single token.
+ * Innermost `$( )` first, to handle nesting.
+ */
+function collapseDynamic(s: string): string {
+  let out = s;
+  let prev: string;
+  do { prev = out; out = out.replace(/\$\([^()]*\)/g, DYN); } while (out !== prev);
+  out = out.replace(/`[^`]*`/g, DYN).replace(/\$\{[^}]*\}/g, DYN);
+  return out;
+}
+
+/**
+ * Catch a gh op whose command NAME is dynamically assembled and thus invisible to
+ * the literal `\bgh\b` patterns — `g$(echo h) repo delete`, `$(printf gh) pr merge`.
+ * The substitution can't be resolved statically, so for any command-position token
+ * that contains a dynamic span we assume the worst (it could assemble to `gh`),
+ * substitute `gh`, and classify. Over-flags a dynamic command that is *followed by
+ * a gated gh verb-phrase*; a dynamic command with no such phrase is untouched.
+ */
+function matchAssembledGhOp(esc: string): GhClassification | null {
+  const collapsed = collapseDynamic(esc);
+  let worst: GhClassification | null = null;
+  for (const seg of collapsed.split(/\|\||&&|[;|&\n()]/)) {
+    const trimmed = seg.trim();
+    if (!trimmed) continue;
+    const firstTok = trimmed.split(/\s+/)[0] ?? '';
+    if (!firstTok.includes(DYN)) continue;
+    const candidate = 'gh' + trimmed.slice(firstTok.length);
+    const m = matchTierPatterns(candidate);
+    if (m) worst = moreSevere(worst, m);
+  }
+  return worst;
 }
 
 /**
@@ -245,7 +315,9 @@ function moreSevere(a: GhClassification | null, b: GhClassification): GhClassifi
  *                      (comments stripped, evasion decoded).
  */
 export function classifyGhCommand(normalizedCmd: string): GhClassification {
-  const esc = neutralizeEscapes(normalizedCmd);
+  // defuseObfuscation folds in neutralizeEscapes AND undoes command-token
+  // obfuscation ($IFS, quote-splice) so the tier patterns see the real op.
+  const esc = defuseObfuscation(normalizedCmd);
   const codeOnly = stripBalancedQuotes(esc);
 
   // Stage 1 — unquoted ops (the common case; covers every chaining/wrapping form).
@@ -262,6 +334,11 @@ export function classifyGhCommand(normalizedCmd: string): GhClassification {
     const swept = matchTierPatterns(esc);
     if (swept) worst = moreSevere(worst, swept);
   }
+
+  // Stage 3 — command NAME dynamically assembled via `$( )` / backtick / `${ }`.
+  const assembled = matchAssembledGhOp(esc);
+  if (assembled) worst = moreSevere(worst, assembled);
+
   if (worst) return worst;
 
   // No state-mutating op. Distinguish a routine gh command (ALLOW) from non-gh.
