@@ -21,6 +21,19 @@
  * hard guarantees.
  */
 
+/**
+ * Bound the fuel a backtracking regex can burn. A single regex match is
+ * uninterruptible in JS, so the INPUT CAP is what bounds one slow pattern;
+ * SCAN_BUDGET_MS then bounds ACCUMULATION across the pattern loop. Injection
+ * payloads are compact and land early, so 8KB covers the realistic case.
+ *
+ * Apply the cap BEFORE any pre-pass (normalization, obfuscation checks), not
+ * just before the regex loop — otherwise those passes still walk the full input
+ * (linear, but unbounded: ~354ms on 8MB) and the cap under-delivers on its name.
+ */
+export const MAX_SCAN_BYTES = 8192;
+export const SCAN_BUDGET_MS = 2000;
+
 /** Unbounded quantifier: `+`, `*`, or `{n,}` (note the required trailing comma). */
 const UNBOUNDED = String.raw`(?:[+*]|\{\d+,\})`;
 

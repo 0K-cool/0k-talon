@@ -15,7 +15,7 @@
  */
 
 import { loadInjectionConfig, type InjectionPattern as ConfigPattern } from './config-loader';
-import { isRedosVulnerable } from '../hooks/lib/redos-guard';
+import { isRedosVulnerable, MAX_SCAN_BYTES, SCAN_BUDGET_MS } from '../hooks/lib/redos-guard';
 import { normalizeUnicode as normalizeForScanning, INVISIBLE_CHARS } from '../hooks/lib/unicode-normalize';
 
 // ============================================================================
@@ -397,12 +397,6 @@ export interface ExtendedScanResult extends ScanResult {
   scanBudgetExceeded?: boolean;
 }
 
-// Bound the fuel a backtracking regex can burn. A single regex match is
-// uninterruptible in JS, so the INPUT CAP is what bounds one slow pattern;
-// the wall-clock budget then bounds ACCUMULATION across patterns.
-export const MAX_SCAN_BYTES = 8192;
-const SCAN_BUDGET_MS = 2000;
-
 /**
  * Scan content for injection patterns
  */
@@ -419,14 +413,16 @@ export function scanForInjections(
     CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1,
   };
 
-  const unicodeObfuscationDetected = hasUnicodeObfuscation(content);
-  const normalizedContent = normalizeForScanning(content);
-  const activePatterns = getActivePatterns();
+  // Cap BEFORE the pre-passes: hasUnicodeObfuscation and normalizeForScanning
+  // both walk the whole string, so capping afterwards would leave them
+  // unbounded. Everything downstream works on at most MAX_SCAN_BYTES of input.
+  const scanTruncated = content.length > MAX_SCAN_BYTES;
+  const cappedContent = scanTruncated ? content.slice(0, MAX_SCAN_BYTES) : content;
 
-  // Cap the input fed to backtracking regexes: a vulnerable pattern's cost
-  // grows with input length, so capping bounds worst-case matching time.
-  const scanTruncated = normalizedContent.length > MAX_SCAN_BYTES;
-  const scanContent = scanTruncated ? normalizedContent.slice(0, MAX_SCAN_BYTES) : normalizedContent;
+  const unicodeObfuscationDetected = hasUnicodeObfuscation(cappedContent);
+  const normalizedContent = normalizeForScanning(cappedContent);
+  const scanContent = normalizedContent;
+  const activePatterns = getActivePatterns();
 
   const scanStart = Date.now();
   let scanBudgetExceeded = false;
@@ -453,13 +449,13 @@ export function scanForInjections(
     if (match) {
       // Code syntax exclusion: skip matches inside argparse/Click/Typer kwargs.
       // These are API-surface tokens, never prompt-injection prose.
-      if (contextAware && isCodeSyntaxContext(content, match.index, match[0].length)) {
+      if (contextAware && isCodeSyntaxContext(cappedContent, match.index, match[0].length)) {
         continue;
       }
 
       let effectiveSeverity = pattern.severity;
 
-      if (contextAware && isDocumentationContext(content, match.index, match[0].length)) {
+      if (contextAware && isDocumentationContext(cappedContent, match.index, match[0].length)) {
         if (pattern.severity === 'CRITICAL' || pattern.severity === 'HIGH') {
           effectiveSeverity = 'LOW';
         } else {

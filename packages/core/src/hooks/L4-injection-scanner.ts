@@ -33,6 +33,7 @@ import {
   loadInjectionPatterns,
   type InjectionPattern as LoadedPattern,
 } from './lib/config-loader';
+import { MAX_SCAN_BYTES, SCAN_BUDGET_MS } from './lib/redos-guard';
 import { isDiagnosticBashCommand, isTrustedLocalRagRetrieval } from './lib/diagnostic-allowlist';
 import {
   applyL4ClassifierGate,
@@ -498,13 +499,6 @@ function applyEscalation(
 // Scanning Logic
 // ============================================================================
 
-// Bound the fuel a backtracking regex can burn. A single regex match is
-// uninterruptible in JS, so the INPUT CAP is what bounds one slow pattern;
-// the wall-clock budget then bounds ACCUMULATION across patterns. Injection
-// payloads are compact and land early, so 8KB covers the realistic case.
-export const MAX_SCAN_BYTES = 8192;
-const SCAN_BUDGET_MS = 2000;
-
 export function scanForInjections(content: string): {
   detected: boolean;
   matches: InjectionMatch[];
@@ -514,14 +508,16 @@ export function scanForInjections(content: string): {
   scanTruncated?: boolean;
   scanBudgetExceeded?: boolean;
 } {
-  const normalizedContent = normalizeUnicode(content);
+  // Cap BEFORE normalizing: normalization walks the whole string, so capping
+  // afterwards would leave that pass unbounded. Everything downstream then
+  // works on at most MAX_SCAN_BYTES of input.
+  const scanTruncated = content.length > MAX_SCAN_BYTES;
+  const cappedContent = scanTruncated ? content.slice(0, MAX_SCAN_BYTES) : content;
+
+  const normalizedContent = normalizeUnicode(cappedContent);
+  const scanContent = normalizedContent;
   const matches: InjectionMatch[] = [];
   const categoriesSet = new Set<InjectionCategory>();
-
-  // Cap the input fed to backtracking regexes: a vulnerable pattern's cost
-  // grows with input length, so capping bounds worst-case matching time.
-  const scanTruncated = normalizedContent.length > MAX_SCAN_BYTES;
-  const scanContent = scanTruncated ? normalizedContent.slice(0, MAX_SCAN_BYTES) : normalizedContent;
 
   const scanStart = Date.now();
   let scanBudgetExceeded = false;
