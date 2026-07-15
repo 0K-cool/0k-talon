@@ -2,7 +2,7 @@
 
 ![0K-Talon Banner](0k-talon-banner.jpg)
 
-[![Version](https://img.shields.io/badge/version-1.12.2-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.12.2)
+[![Version](https://img.shields.io/badge/version-1.13.0-blue)](https://github.com/0K-cool/0k-talon/releases/tag/v1.13.0)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Claude_Code-orange)](https://code.claude.com)
 [![Security Layers](https://img.shields.io/badge/security_layers-21-critical)](README.md#architecture)
@@ -21,7 +21,7 @@
 
 *Sharp, fast, always watching. Defense-in-depth security that strikes before threats land.*
 
-> **This plugin is not for the faint of heart.** 0K-Talon runs 21 hooks on every tool call and config change — 7 before execution, 6 after, plus session lifecycle, config change, user prompt, subagent stop, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
+> **This plugin is not for the faint of heart.** 0K-Talon runs 23 hooks on every tool call and config change — 7 before execution, 6 after, plus session lifecycle, config change, user prompt, subagent stop, enforcement-canary, and onboarding hooks — plus behavioral security directives loaded into the AI's reasoning context. It was built for security professionals and developers who want serious protection for their AI coding agent. If you want a lightweight linter, this isn't it. If you want defense-in-depth that maps to OWASP and MITRE frameworks, keep reading.
 
 Zero cloud dependencies. OWASP LLM 2025 + MITRE ATLAS coverage. Works out of the box.
 
@@ -70,14 +70,14 @@ Most developers run Claude Code with zero security layers. 0K-Talon adds 21.
 
 ## What You Get (Out of the Box)
 
-21 hooks activate automatically after installation (20 security + 1 onboarding). No configuration required.
+23 hooks activate automatically after installation (22 security + 1 onboarding). No configuration required.
 
 ### PreToolUse Hooks (Block Before Execution)
 
 | Layer | Name | What It Does |
 |-------|------|-------------|
 | **L0** | Secure Code Enforcer | Blocks CRITICAL vulnerabilities (SQL injection, command injection, hardcoded secrets) before code is written |
-| **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, input-side DLP (17 secret patterns), command normalization (anti-evasion), and a GitHub CLI state-mutation guard (gh-policy: tiered block / confirm-token, `OK_TALON_GH_POLICY`). Blocks dangerous operations, modifies risky inputs |
+| **L1** | Governor Agent | 33+ policy enforcement rules with Cedar formal authorization, IFC taint tracking, trajectory limits, input-side DLP (17 secret patterns), command normalization (anti-evasion), and a GitHub CLI state-mutation guard (gh-policy: tiered block / confirm-token, `OK_TALON_GH_POLICY`). Denies dangerous operations via the supported hook contract |
 | **L3** | Memory Validation (MCP)† | Detects instruction injection, fake facts, and context manipulation in MCP memory operations |
 | **L3** | Memory File Validation† | **Hard-blocks** (exit 2) memory-poisoning injection in Write/Edit/MultiEdit to memory files (`/memory/` paths, `MEMORY.md`). Always active — no memory server required |
 | **L9** | Egress Scanner | Prevents data exfiltration via secrets in URLs, bulk data transfer, base64-encoded payloads, and blocked destinations (pastebin, ngrok, webhook.site) |
@@ -110,7 +110,10 @@ _†The two L3 hooks cover different memory surfaces. **Memory Validation (MCP)*
 | **L12** | Least Privilege Profiles | Initializes session with permission profiles (dev, audit, client-work, research) |
 | **L3** | Auto Memory Guardian | Scans Claude Code's built-in auto memory (`MEMORY.md`) for injection patterns at session start. Quarantines poisoned files before they influence the session |
 | **L20** | Session Integrity | Anti-fabrication defense. SHA-256 integrity hashing of session JSONL files, read-only file locking on old sessions (chmod 0400), fabrication artifact detection (placeholder UUIDs, uniform timestamps, authorization claim injection, approval_policy overrides). Audit logging of tamper/fabrication events. Threat model: [0din Fabricator](https://0din.ai/blog/your-ai-agent-has-a-memory-problem) |
+| **Canary** | Enforcement Canary | Continuous control validation. Spawns each control with a decoy MUST-BLOCK payload and checks the emitted decision against a pinned hook-output contract, so a control that stops enforcing surfaces immediately instead of silently. Fail-loud, never fail-shut — always exits 0. Throttled to once per 24h. State at `state/enforcement-canary.json` |
 | **STOP** | Security Report | Generates HTML security report with dynamic coverage detection — shows which layers are active vs require setup, framework coverage calculated from your actual environment |
+
+_Why the canary exists: a control can **believe** it blocked and be wrong. In v1.13.0 every Governor BLOCK policy was found to be a silent no-op — it denied in a format Claude Code ignores, so the banner printed, the audit log recorded `BLOCK`, and the command ran anyway. Nothing that asserts on a policy's own `action: 'BLOCK'` can catch that; only exercising the control and observing the emitted decision can. The canary found it on its first run._
 
 ### TaskCreated & SubagentStop Hooks (#21460 Mitigation)
 
@@ -208,7 +211,7 @@ git clone https://github.com/0K-cool/0k-talon.git ~/.claude/plugins/0k-talon
 claude --plugin-dir ~/.claude/plugins/0k-talon
 ```
 
-All 21 hooks activate immediately. No build step required — hooks run directly via Bun.
+All 23 hooks activate immediately. No build step required — hooks run directly via Bun.
 
 To load the plugin automatically on every session, add it to your shell config:
 
@@ -227,7 +230,7 @@ alias claude='claude --plugin-dir ~/.claude/plugins/0k-talon'
 
 On your **first session**, Claude will confirm 0K-Talon is active in its first response:
 
-> 🛡️ **New Plugin Installed** — 0K-Talon is active with 21 hooks protecting this session. Run `/0k-talon:status` for a detailed security dashboard.
+> 🛡️ **New Plugin Installed** — 0K-Talon is active with 23 hooks protecting this session. Run `/0k-talon:status` for a detailed security dashboard.
 
 You can also verify at any time:
 
