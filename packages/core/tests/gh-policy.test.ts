@@ -182,3 +182,44 @@ describe('classifyGhCommand — review-round hardening (CodeRabbit findings)', (
     expect(classifyGhCommand('gh api --method=POST /repos/o/r/issues').tier).toBe(GhTier.CONFIRM);
   });
 });
+
+describe('classifyGhCommand — command-token obfuscation bypasses', () => {
+  it('catches a quote-spliced command name ("gh" repo delete)', () => {
+    expect(classifyGhCommand('"gh" repo delete o/r --yes').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches a split-quote command name (g"h" repo delete)', () => {
+    expect(classifyGhCommand('g"h" repo delete o/r --yes').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches a quoted verb (gh repo "delete")', () => {
+    expect(classifyGhCommand('gh repo "delete" o/r --yes').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches $IFS word-splitting (gh${IFS}repo${IFS}delete)', () => {
+    expect(classifyGhCommand('gh${IFS}repo${IFS}delete o/r --yes').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches a command-substitution-assembled name (g$(echo h) repo delete)', () => {
+    expect(classifyGhCommand('g$(echo h) repo delete o/r --yes').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches a fully substituted name ($(printf gh) pr merge)', () => {
+    expect(classifyGhCommand('$(printf gh) pr merge 5').tier).toBe(GhTier.CONFIRM);
+  });
+  it('catches glued gh api -XDELETE', () => {
+    expect(classifyGhCommand('gh api -XDELETE /repos/o/r').tier).toBe(GhTier.BLOCK);
+  });
+  it('catches a gh api graphql mutation as CONFIRM', () => {
+    expect(classifyGhCommand("gh api graphql -f query='mutation{deleteRepository}'").tier).toBe(GhTier.CONFIRM);
+  });
+
+  // Must NOT over-block legitimate commands.
+  it('does NOT gate a graphql READ query', () => {
+    expect(classifyGhCommand("gh api graphql -f query='{ viewer { login } }'").tier).toBe(GhTier.ALLOW);
+  });
+  it('does NOT gate a commit message that mentions a gh op', () => {
+    expect(classifyGhCommand('git commit -m "wip: gh repo delete later"').tier).toBe(GhTier.NOT_GH);
+  });
+  it('does NOT gate a routine gh command using $() in an arg', () => {
+    expect(classifyGhCommand('VAR=$(gh pr list); echo done').tier).not.toBe(GhTier.BLOCK);
+  });
+  it('does NOT gate gh pr create with a quoted single-word arg', () => {
+    expect(classifyGhCommand('gh pr create --title "release"').tier).toBe(GhTier.ALLOW);
+  });
+});
