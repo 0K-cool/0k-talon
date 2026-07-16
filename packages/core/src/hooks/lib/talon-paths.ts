@@ -61,9 +61,14 @@ function isValidTalonDir(dir: string): boolean {
  * Detect the 0K-Talon installation directory.
  * Priority:
  * 1. TALON_DIR environment variable (validated)
- * 2. ~/.0k-talon (global installation)
- * 3. ./0k-talon (project-local)
- * 4. Fallback to ~/.0k-talon (create if needed)
+ * 2. ~/.0k-talon (global installation, created if absent)
+ *
+ * The working directory is deliberately NOT consulted. Talon governs the
+ * workspace it runs in, so letting that workspace supply the control plane
+ * inverts the trust relationship: a cloned repo shipping `.0k-talon/` would
+ * take over config, state, logs and quarantine for the session. Substituting
+ * the config alone collapsed the injection pattern set from 272 to 1, silently.
+ * Project-local installation was never a documented mode.
  */
 function detectTalonDir(): string {
   // 1. Check environment variable (with validation)
@@ -72,31 +77,12 @@ function detectTalonDir(): string {
     if (isValidTalonDir(envDir)) {
       return envDir;
     }
-    // Invalid TALON_DIR - log warning and fall through to defaults
+    // Invalid TALON_DIR - log warning and fall through to the default
     console.error(`[talon-paths] WARNING: TALON_DIR="${process.env.TALON_DIR}" rejected (path validation failed). Using default.`);
   }
 
-  // 2. Check global installation
-  const globalDir = join(homedir(), '.0k-talon');
-  if (existsSync(globalDir)) {
-    return globalDir;
-  }
-
-  // 3. Check project-local installation
-  const cwd = process.cwd();
-  const projectDirs = [
-    join(cwd, '.0k-talon'),
-    join(cwd, '0k-talon'),
-    join(cwd, '.claude-plugin', '0k-talon'),
-  ];
-  for (const dir of projectDirs) {
-    if (existsSync(dir)) {
-      return dir;
-    }
-  }
-
-  // 4. Fallback to global (will be created)
-  return globalDir;
+  // 2. Global installation (ensureDirectories() creates it when absent)
+  return join(homedir(), '.0k-talon');
 }
 
 // ============================================================================
