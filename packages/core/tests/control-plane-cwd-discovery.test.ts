@@ -62,12 +62,20 @@ afterAll(() => {
 });
 
 /** Load talon-paths from inside `cwd` and report the directory it resolved. */
-function resolveTalonDirFrom(cwd: string, env: Record<string, string>): string {
+function resolveTalonDirFrom(cwd: string, overrides: Record<string, string>): string {
+  const env = { ...process.env };
+  // TALON_DIR outranks HOME, so a developer's inherited value would decide the
+  // result of cases that mean to exercise the HOME fallback. Today it happens to
+  // be neutralized — isValidTalonDir rejects it for sitting outside the
+  // overridden HOME — but that is a side-effect of validation, not isolation.
+  // Drop it explicitly; cases that want it opt back in via `overrides`.
+  delete env.TALON_DIR;
+
   const res = spawnSync('bun', ['run', probe], {
     cwd,
     encoding: 'utf-8',
     timeout: 20_000,
-    env: { ...process.env, ...env },
+    env: { ...env, ...overrides },
   });
   return (res.stdout ?? '').trim().split('\n').pop() ?? '';
 }
