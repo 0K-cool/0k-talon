@@ -85,8 +85,9 @@ function getConfigBasePath(): string {
       return resolved;
     }
   }
-  const projectPath = join(process.cwd(), '.0k-talon', 'configs');
-  if (existsSync(projectPath)) return projectPath;
+  // The working directory is deliberately NOT consulted: a workspace that
+  // could supply its own detection config could switch detection off. See
+  // hooks/lib/talon-paths.ts for the same boundary on the loader hooks use.
   return join(dirname(__dirname), 'configs');
 }
 
