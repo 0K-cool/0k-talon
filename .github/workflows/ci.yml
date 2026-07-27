@@ -191,11 +191,20 @@ jobs:
           # label IS present, the timeline says WHEN it was applied. --paginate
           # --slurp for the same reason as the comment fetch below -- a long PR
           # timeline pages, and a per-page `last` is not the last.
+          #
+          # The filter is a SEPARATE jq process, not `gh --jq`. `gh api --slurp`
+          # refuses to run with `--jq` at all -- "the --slurp option is not
+          # supported with --jq or --template" (gh 2.83.2), exit 1, no output.
+          # Measured on 0k-talon#53: the first real execution of this job died
+          # in 4 seconds on exactly that. Both queries here had been written
+          # `--paginate --slurp --jq` across three review rounds, which means
+          # this gate could never have passed OR correctly failed. Piping keeps
+          # the pagination fix and drops the incompatibility.
           LABEL_TIME=$(gh api --paginate --slurp "repos/$REPO/issues/$PR/timeline" \
-            --jq '[ .[][]
-                    | select(.event == "labeled")
-                    | select(.label.name == "reviewed-in-session")
-                    | .created_at ] | last // ""')
+            | jq -r '[ .[][]
+                       | select(.event == "labeled")
+                       | select(.label.name == "reviewed-in-session")
+                       | .created_at ] | last // ""')
 
           if [ -n "$LABEL_TIME" ]; then
             if [ "$LABEL_TIME" \< "$HEAD_TIME" ]; then
@@ -239,9 +248,11 @@ jobs:
             # early page would fail a PR that genuinely WAS reviewed.
             # --slurp collects the pages into an array of arrays; `.[][]`
             # flattens it so `last` is the true final comment on the thread.
+            # Filtered by a separate jq, not `gh --jq` — see the note on
+            # LABEL_TIME above; the two cannot be combined.
             cr=$(gh api --paginate --slurp "repos/$REPO/issues/$PR/comments" \
-                   --jq '[.[][] | select(.user.login == "coderabbitai[bot]")] | last
-                         | { body: (.body // ""), updated: (.updated_at // "") }')
+                 | jq -r '[.[][] | select(.user.login == "coderabbitai[bot]")] | last
+                          | { body: (.body // ""), updated: (.updated_at // "") }')
             body=$(printf '%s' "$cr" | jq -r '.body')
             updated=$(printf '%s' "$cr" | jq -r '.updated')
 
