@@ -304,3 +304,6 @@ jobs:
           echo "::error::current diff and apply the 'reviewed-in-session' label -- that is the" >&2
           echo "::error::primary path, and it does not depend on CodeRabbit being up." >&2
           exit 1
+
+# stale-label probe: this commit lands AFTER the reviewed-in-session label
+# was applied. The gate must reject the label as attesting to an earlier diff.
