@@ -162,7 +162,11 @@ describe('additionalContext nesting contract', () => {
       const path = join(HOOKS_DIR, file);
       if (!existsSync(path)) continue;
 
-      const emitted = [...readFileSync(path, 'utf8').matchAll(/hookEventName:\s*'([A-Za-z]+)'/g)]
+      // Quote class must cover ', " and ` — a single-quote-only pattern makes
+      // a hook using "PreToolUse" yield zero matches, so the file is skipped
+      // and this check silently does not run. That is the same vacuity failure
+      // this suite exists to prevent, one level up.
+      const emitted = [...readFileSync(path, 'utf8').matchAll(/hookEventName:\s*['"`]([A-Za-z]+)['"`]/g)]
         .map(m => m[1]!);
       if (emitted.length === 0) continue;
 
