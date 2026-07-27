@@ -1013,8 +1013,11 @@ async function main() {
     if (dlpFindings.length > 0 && result.action !== 'BLOCK') {
       const dlpTypes = dlpFindings.map(f => f.secretType).join(', ');
       console.log(JSON.stringify({
-        additionalContext: `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
-          `Secrets should use environment variables or secret manager references, not inline values.`,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
+            `Secrets should use environment variables or secret manager references, not inline values.`,
+        },
       }));
     }
 
@@ -1049,8 +1052,11 @@ async function main() {
 
     if (result.policy && result.action === 'WARN') {
       console.log(JSON.stringify({
-        additionalContext: `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
-          `${result.message}. Proceeding with caution.`,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
+            `${result.message}. Proceeding with caution.`,
+        },
       }));
     }
 

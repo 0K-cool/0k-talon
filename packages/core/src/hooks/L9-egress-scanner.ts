@@ -465,9 +465,12 @@ async function main() {
       const findingNames = findings.slice(0, 3).map(f => f.name).join(', ');
       console.error(`\n⚠️  TALON L9: Egress warning - ${findings.map(f => f.name).join(', ')}\n`);
       console.log(JSON.stringify({
-        additionalContext: `🚨 TALON EGRESS SCANNER (L9) HIGH: Potential data exfiltration detected in ${data.tool_name}. ` +
-          `Categories: ${categories.join(', ')}. Findings: ${findingNames}. ` +
-          `Session egress: ${(sessionState.total_egress_bytes / 1024).toFixed(1)}KB. Proceeding with caution.`,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: `🚨 TALON EGRESS SCANNER (L9) HIGH: Potential data exfiltration detected in ${data.tool_name}. ` +
+            `Categories: ${categories.join(', ')}. Findings: ${findingNames}. ` +
+            `Session egress: ${(sessionState.total_egress_bytes / 1024).toFixed(1)}KB. Proceeding with caution.`,
+        },
       }));
     }
 
