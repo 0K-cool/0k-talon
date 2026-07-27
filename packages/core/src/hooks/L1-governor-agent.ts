@@ -1009,16 +1009,19 @@ async function main() {
       }
     }
 
-    // DLP context injection (warn AI about leaked secrets)
+    // Context notes are ACCUMULATED and emitted once, below. Two
+    // console.log(JSON.stringify(...)) calls in one run produce `{...}{...}`,
+    // which is not parseable JSON — the harness then gets NOTHING, losing both
+    // messages. That co-occurrence (a secret in the parameters of a call that
+    // also tripped a policy) is exactly the case that matters most.
+    const contextNotes: string[] = [];
+
     if (dlpFindings.length > 0 && result.action !== 'BLOCK') {
       const dlpTypes = dlpFindings.map(f => f.secretType).join(', ');
-      console.log(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          additionalContext: `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
-            `Secrets should use environment variables or secret manager references, not inline values.`,
-        },
-      }));
+      contextNotes.push(
+        `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
+          `Secrets should use environment variables or secret manager references, not inline values.`,
+      );
     }
 
     // A BLOCK policy must DENY through the contract Claude Code honors.
@@ -1051,11 +1054,17 @@ async function main() {
     }
 
     if (result.policy && result.action === 'WARN') {
+      contextNotes.push(
+        `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
+          `${result.message}. Proceeding with caution.`,
+      );
+    }
+
+    if (contextNotes.length > 0) {
       console.log(JSON.stringify({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
-          additionalContext: `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
-            `${result.message}. Proceeding with caution.`,
+          additionalContext: contextNotes.join(' '),
         },
       }));
     }

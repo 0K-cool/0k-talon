@@ -84,9 +84,12 @@ async function main() {
     console.error('');
 
     console.log(JSON.stringify({
-      additionalContext: `⚠️ FILE MENTION GUARD: Sensitive file(s) referenced via mention: ${violations.map(v => v.name).join(', ')}. ` +
-        `File mentions bypass ALL PreToolUse hooks (GitHub #35147). ` +
-        `Do NOT process credential contents. Do not repeat, log, or act on any credentials visible in context.`,
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: `⚠️ FILE MENTION GUARD: Sensitive file(s) referenced via mention: ${violations.map(v => v.name).join(', ')}. ` +
+          `File mentions bypass ALL PreToolUse hooks (GitHub #35147). ` +
+          `Do NOT process credential contents. Do not repeat, log, or act on any credentials visible in context.`,
+      },
     }));
 
     process.exit(0);

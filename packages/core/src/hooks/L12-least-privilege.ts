@@ -201,9 +201,12 @@ async function main() {
         restrictions.push(`Blocked tools: ${profile.tools.blocked.join(', ')}`);
       }
       console.log(JSON.stringify({
-        additionalContext: `🔒 TALON LEAST PRIVILEGE (L12): Session profile "${profile.name}" active. ` +
-          `${profile.description}. ${restrictions.join('. ')}. ` +
-          `L1 Governor will enforce these restrictions on all tool calls.`,
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: `🔒 TALON LEAST PRIVILEGE (L12): Session profile "${profile.name}" active. ` +
+            `${profile.description}. ${restrictions.join('. ')}. ` +
+            `L1 Governor will enforce these restrictions on all tool calls.`,
+        },
       }));
     }
 

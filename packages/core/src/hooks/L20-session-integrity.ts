@@ -336,7 +336,10 @@ async function main(): Promise<void> {
 
     console.log(JSON.stringify({
       continue: true,
-      additionalContext: warningText,
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: warningText,
+      },
     }));
   } else {
     console.log(JSON.stringify({ continue: true }));
