@@ -190,7 +190,7 @@ export function isBashCommandAllowed(command: string, profile: Profile): Profile
     for (const pattern of blocked_patterns) {
       // Convert glob pattern to regex
       const regex = new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*?') + '$', 'i');
-      if (regex.test(command) || command.startsWith(pattern.replace('*', ''))) {
+      if (regex.test(command) || command.startsWith(pattern.replace(/\*/g, ''))) {
         return {
           allowed: false,
           reason: `Bash command blocked by '${profile.name}' profile: matches '${pattern}'`,
@@ -204,7 +204,7 @@ export function isBashCommandAllowed(command: string, profile: Profile): Profile
   if (allowed_patterns && allowed_patterns.length > 0) {
     for (const pattern of allowed_patterns) {
       const regex = new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*?') + '$', 'i');
-      if (regex.test(command) || command.startsWith(pattern.replace('*', ''))) {
+      if (regex.test(command) || command.startsWith(pattern.replace(/\*/g, ''))) {
         return { allowed: true, reason: `Bash command in allowlist`, profile: profile.name };
       }
     }
