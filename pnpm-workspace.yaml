@@ -1,3 +1,14 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+
+# Supply-chain hardening (Semgrep p/default, first real scan 2026-07-28).
+# trustPolicy: an update must not silently downgrade security settings.
+# minimumReleaseAge: 10080 minutes = 7 days. A compromised release is usually
+#   caught and yanked within days; installing on publication day is the window
+#   that attack depends on. Matches the Dependabot cooldown in this repo.
+# blockExoticSubdeps: transitive deps must come from the registry, not from
+#   arbitrary git/tarball URLs a sub-dependency can name.
+trustPolicy: no-downgrade
+minimumReleaseAge: 10080
+blockExoticSubdeps: true

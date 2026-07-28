@@ -21,10 +21,10 @@
  */
 
 import { existsSync, readdirSync, statSync, chmodSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
-import { STATE_DIR, LOGS_DIR, ensureDirectories, getAuditLogPath, secureAppendLog } from './lib/talon-paths';
+import { STATE_DIR, ensureDirectories, getAuditLogPath, secureAppendLog } from './lib/talon-paths';
 
 // ============================================================================
 // Types
@@ -144,7 +144,13 @@ function scanForFabricationArtifacts(filePath: string): string[] {
     if (timestamps.length >= 5) {
       const intervals = [];
       for (let i = 1; i < timestamps.length; i++) {
-        intervals.push(timestamps[i] - timestamps[i - 1]);
+        // noUncheckedIndexedAccess: both indices are in-bounds by the loop
+        // condition, but the compiler cannot prove it. Guard explicitly rather
+        // than asserting non-null.
+        const cur = timestamps[i];
+        const prev = timestamps[i - 1];
+        if (cur === undefined || prev === undefined) continue;
+        intervals.push(cur - prev);
       }
       // If all intervals are identical (within 10ms), likely fabricated
       const uniqueIntervals = new Set(intervals.map(i => Math.round(i / 10)));
@@ -346,6 +352,12 @@ async function main(): Promise<void> {
   }
 }
 
-if (import.meta.main) {
+// Entrypoint guard. Was `import.meta.main`, which tsc rejects under
+// module: NodeNext (this package has no "type": "module", so TS treats
+// these as CommonJS) — TS1470, and it broke `pnpm build`.
+// Bun provides __filename in ESM files, and these hooks run via
+// `bun run <path>.ts` per hooks.json, so this is equivalent at runtime.
+// The guard matters: tests import from this module and must not run main().
+if (process.argv[1] === __filename) {
   main();
 }

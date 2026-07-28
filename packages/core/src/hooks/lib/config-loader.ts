@@ -151,13 +151,10 @@ const CACHE_TTL_MS = 60000; // 1 minute
 // bundled package. This matters because `ensureDirectories()` creates
 // CONFIG_DIR eagerly, so the directory existing doesn't imply it has
 // real content.
-function getConfigBasePath(): string {
-  // Kept for backward compatibility — new loadConfig path resolves
-  // per-file via resolveConfigFile() below.
-  const bundledPath = join(dirname(__dirname), 'config');
-  if (existsSync(bundledPath)) return bundledPath;
-  return CONFIG_DIR;
-}
+// getConfigBasePath() removed 2026-07-28. Its own comment said it was "kept
+// for backward compatibility", superseded by resolveConfigFile() below — and
+// nothing referenced it anywhere in src/ or tests/. It tripped noUnusedLocals
+// and was one of the 7 errors keeping `pnpm build` broken on main.
 
 // Per-file resolver: prefer user-provided override at CONFIG_DIR, fall
 // back to bundled package path. Returns an absolute path or null if

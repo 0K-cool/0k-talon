@@ -41,15 +41,45 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1 (upstream only publishes v1 / v1-debug — no semver)
+      # NOT semgrep/semgrep-action — it runs `semgrep ci`, the semgrep-app mode.
+      # Without SEMGREP_APP_TOKEN it errors, announces "Semgrep will succeed
+      # because there were no blocking findings", and exits 0.
+      #
+      # Measured 2026-07-28 across every repo using this template — vex,
+      # 0k-talon, 0k-rag, mnemosyne — all showed `semgrep ci` -> banner -> job
+      # cleanup in 2-3 seconds. Scanning nothing. Reporting pass. Every run
+      # since the template was written. On vex, the first real scan found two
+      # live command injections.
+      #
+      # `semgrep scan` needs no token. Verified: clean file -> exit 0; a file
+      # with eval() + shell=True -> exit 1, "Findings: 2 (2 blocking)".
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v6.2.0
         with:
-          config: |
-            p/default
-            p/security-audit
-            p/secrets
+          python-version: '3.12'
+      - name: Semgrep scan
+        run: |
+          set -eo pipefail
+          pip install --quiet 'semgrep>=1.100.0'
+          # Rule exclusions triaged on vex against 109 real hits, not guessed:
+          #  path-join-resolve-traversal — join(dir, entry.name) from readdirSync;
+          #    a POSIX dirent name cannot contain a separator.
+          #  detect-non-literal-regexp — these codebases BUILD detection patterns
+          #    from config by design; flagging it flags the architecture.
+          # detect-child-process is deliberately NOT excluded: on vex it found
+          # the real injection.
+          semgrep scan \
+            --config=p/default \
+            --config=p/security-audit \
+            --config=p/secrets \
+            --error \
+            --metrics=off \
+            --exclude='**/node_modules/**' \
+            --exclude-rule=javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal \
+            --exclude-rule=javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
 
   vendor-drift:
     name: vendor drift check
@@ -58,7 +88,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       # Fetch each vendored artifact from its canonical source at the pinned ref
@@ -76,7 +106,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -94,7 +124,7 @@ jobs:
         # pnpm clients and Corepack, so we rely on it as the single
         # source of truth here — no `with: version:` input on purpose.
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           # `engines.node` in package.json declares `>=20.0.0`. Pinning
           # 20 here for reproducibility rather than `latest-lts`.
