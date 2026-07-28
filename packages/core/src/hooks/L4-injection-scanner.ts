@@ -820,6 +820,12 @@ async function main() {
   }
 }
 
-if (import.meta.main) {
+// Entrypoint guard. Was `import.meta.main`, which tsc rejects under
+// module: NodeNext (this package has no "type": "module", so TS treats
+// these as CommonJS) — TS1470, and it broke `pnpm build`.
+// Bun provides __filename in ESM files, and these hooks run via
+// `bun run <path>.ts` per hooks.json, so this is equivalent at runtime.
+// The guard matters: tests import from this module and must not run main().
+if (process.argv[1] === __filename) {
   main();
 }
