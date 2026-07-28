@@ -1009,13 +1009,25 @@ async function main() {
       }
     }
 
-    // DLP context injection (warn AI about leaked secrets)
+    // Context notes are ACCUMULATED and emitted once, below. The harness
+    // line-splits a hook's stdout, takes the FIRST parseable object and breaks,
+    // so a second console.log(JSON.stringify(...)) in the same run was silently
+    // dropped: the DLP note went through and the policy WARN did not. That
+    // co-occurrence — a secret in the parameters of a call that also tripped a
+    // policy — is exactly the case that matters most.
+    //
+    // Read out of the v2.1.220 binary, not inferred. An earlier revision of this
+    // comment claimed the two objects concatenated into unparseable JSON and both
+    // messages were lost. That was wrong, and wrong in the same way this PR is
+    // about: asserting runtime behaviour without checking the runtime.
+    const contextNotes: string[] = [];
+
     if (dlpFindings.length > 0 && result.action !== 'BLOCK') {
       const dlpTypes = dlpFindings.map(f => f.secretType).join(', ');
-      console.log(JSON.stringify({
-        additionalContext: `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
+      contextNotes.push(
+        `🔐 TALON DLP WARNING: Possible ${dlpTypes} detected in ${data.tool_name} parameters. ` +
           `Secrets should use environment variables or secret manager references, not inline values.`,
-      }));
+      );
     }
 
     // A BLOCK policy must DENY through the contract Claude Code honors.
@@ -1048,9 +1060,18 @@ async function main() {
     }
 
     if (result.policy && result.action === 'WARN') {
-      console.log(JSON.stringify({
-        additionalContext: `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
+      contextNotes.push(
+        `🛡️ TALON GOVERNOR (L1) ${result.severity}: Policy "${result.policy.name}" flagged for ${data.tool_name}. ` +
           `${result.message}. Proceeding with caution.`,
+      );
+    }
+
+    if (contextNotes.length > 0) {
+      console.log(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: contextNotes.join(' '),
+        },
       }));
     }
 

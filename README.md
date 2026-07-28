@@ -119,7 +119,7 @@ _Why the canary exists: a control can **believe** it blocked and be wrong. In v1
 
 | Layer | Name | What It Does |
 |-------|------|-------------|
-| **Cross-cutting** | Subagent Audit | Fires on every subagent spawn (TaskCreated). Logs agent type, prompt, and 4-tier risk assessment. CRITICAL risk injects `additionalContext` warning about hook bypass. Audit log at `logs/subagent-audit.jsonl` |
+| **Cross-cutting** | Subagent Audit | Fires on every subagent spawn (TaskCreated). Logs agent type, prompt, and 4-tier risk assessment. CRITICAL risk emits a hook-bypass warning to **stderr** — verified against the v2.1.220 binary, `TaskCreated` has no `hookSpecificOutput` variant at all, so no channel to the model exists and the warning reaches the operator only. Audit log at `logs/subagent-audit.jsonl` |
 | **Cross-cutting** | Subagent DLP Scanner | Fires when each subagent finishes (SubagentStop). Scans subagent output transcript for secrets (AWS/GitHub/Anthropic/OpenAI keys, private keys), PII (SSN, credit cards, phone numbers), and client data markers before results enter parent context. Alert-only — never blocks. Audit log at `logs/subagent-dlp.jsonl` |
 
 _Both hooks mitigate [anthropics/claude-code#21460](https://github.com/anthropics/claude-code/issues/21460) — subagent tool calls bypass all PreToolUse hooks (L0-L20). Since prevention upstream is not possible, these hooks provide detection, audit, and behavioral anchoring._
@@ -132,7 +132,7 @@ _Both hooks mitigate [anthropics/claude-code#21460](https://github.com/anthropic
 
 ### Dual Notification Pattern
 
-All hooks implement a dual notification pattern:
+Most hooks implement a dual notification pattern (stderr for the operator, nested `hookSpecificOutput.additionalContext` for the model). `TaskCreated` and `ConfigChange` are stderr-only: the binary exposes no context variant for those events:
 
 1. **`console.error()`** — Visual alert displayed directly to the user
 2. **`additionalContext`** — Context injected into the AI's reasoning window
@@ -534,7 +534,7 @@ _†Requires MCP Memory Server. *Requires external tool. Coverage is dynamically
 - **PostToolUse** hooks can only ALERT and inform (fail-open — content already in context). All inject `additionalContext` for behavioral anchoring
 - **Defense-in-depth** — multiple overlapping layers catch what one might miss
 - **Zero trust** — validate everything, trust nothing
-- **Dual notification** — every security event reaches both the human (stderr) and the AI (additionalContext)
+- **Dual notification** — security events reach both the human (stderr) and the AI (`hookSpecificOutput.additionalContext`), on every hook event that provides that channel. Two do not: `ConfigChange` and `TaskCreated` have no `additionalContext` variant in the hook contract, so those hooks are stderr-only. See "The `additionalContext` Pattern" below.
 
 ### Claude Code Hook Limitations (Documented)
 
@@ -587,7 +587,11 @@ When a PostToolUse hook detects prompt injection in a file Claude just read, tha
 
 ### The `additionalContext` Pattern
 
-Claude Code hooks support an `additionalContext` field in their JSON output. 0K-Talon uses this across **all 16 security hooks** to inject security awareness directly into the AI's reasoning context — creating a **dual notification** system:
+Claude Code hooks support an `additionalContext` field, nested under `hookSpecificOutput` alongside a `hookEventName`. 0K-Talon uses it to inject security awareness directly into the AI's reasoning context — a **dual notification** system:
+
+> **The field must be nested.** A top-level `additionalContext` is stripped as an unrecognized key for *every* event, so the message never reaches the model. The hook contract has no top-level `additionalContext` variant; the runtime even suggests the fix by name (*"Did you mean hookSpecificOutput.additionalContext (with a hookEventName)?"*). `packages/core/tests/additional-context-nesting.test.ts` enforces this.
+>
+> **Two events have no channel at all:** `ConfigChange` (L18 MCP audit) and `TaskCreated` (Subagent Audit) carry no `additionalContext` variant, so those hooks are **stderr-only** — nesting is not a remedy. The test asserts that set so it cannot grow unnoticed.
 
 | Channel | Who Receives It | What It Says |
 |---------|----------------|-------------|

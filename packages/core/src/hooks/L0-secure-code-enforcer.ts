@@ -553,8 +553,11 @@ async function main() {
       displayReminder(classification, filePath, language);
       const patterns = classification.triggers.slice(0, 3).join(', ') || 'security-sensitive patterns';
       console.log(JSON.stringify({
-        additionalContext: `🔐 TALON L0 SECURE CODE ENFORCER HIGH: Security-sensitive code detected in ${filePath}. ` +
-          `Patterns: ${patterns}. L2 Secure Code Linter will validate after write.`,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext: `🔐 TALON L0 SECURE CODE ENFORCER HIGH: Security-sensitive code detected in ${filePath}. ` +
+            `Patterns: ${patterns}. L2 Secure Code Linter will validate after write.`,
+        },
       }));
     }
 

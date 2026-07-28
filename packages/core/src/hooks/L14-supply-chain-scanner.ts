@@ -145,9 +145,12 @@ async function main() {
       const pkgList = malicious.map(m => `${m.pkg} (${m.reason})`).join('; ');
       console.log(JSON.stringify({
         continue: true,
-        additionalContext: `🚨 TALON L14: MALICIOUS PACKAGES DETECTED! ${pkgList}. ` +
-          `These packages are KNOWN COMPROMISED. Remove them immediately with '${ecosystem} remove ${malicious.map(m => m.pkg).join(' ')}'. ` +
-          `Do NOT continue using these packages.`,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `🚨 TALON L14: MALICIOUS PACKAGES DETECTED! ${pkgList}. ` +
+            `These packages are KNOWN COMPROMISED. Remove them immediately with '${ecosystem} remove ${malicious.map(m => m.pkg).join(' ')}'. ` +
+            `Do NOT continue using these packages.`,
+        },
       }));
     } else {
       console.log(JSON.stringify({ continue: true }));

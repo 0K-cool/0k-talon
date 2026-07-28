@@ -145,15 +145,26 @@ async function main() {
   const riskEmoji = riskLevel === 'CRITICAL' ? '🔴' : riskLevel === 'HIGH' ? '🟠' : riskLevel === 'MEDIUM' ? '🟡' : '🟢';
   console.error(`${riskEmoji} [Subagent Audit] ${agentType}/${agentName} spawned (risk: ${riskLevel})${hasSensitiveContent ? ' ⚠️ SENSITIVE: ' + sensitiveMatches.join(', ') : ''}`);
 
-  // For CRITICAL risk, inject context warning
+  // For CRITICAL risk, warn on STDERR — the only channel that reaches anyone
+  // from this event.
+  //
+  // Previously the bypass warning existed ONLY in a top-level
+  // `additionalContext`, which Claude Code ignores (verified against the
+  // v2.1.220 binary: TaskCreated has no hookSpecificOutput variant at all, so
+  // it cannot be nested either — see 0K-cool/vex#126). The stderr line above
+  // fires for every risk level and carries no bypass text. Net effect: the
+  // warning reached NEITHER the operator NOR the model, while README.md:122
+  // stated it reached the operator.
+  //
+  // Emitting it on stderr makes the documented behaviour true.
   if (riskLevel === 'CRITICAL') {
-    console.log(JSON.stringify({
-      continue: true,
-      additionalContext: `⚠️ SUBAGENT SECURITY ALERT (#21460): A ${agentType} subagent "${agentName}" was spawned with sensitive content patterns (${sensitiveMatches.join(', ')}). This subagent's tool calls bypass all PreToolUse hooks. Exercise caution with its output.`
-    }));
-  } else {
-    console.log(JSON.stringify({ continue: true }));
+    console.error(
+      `⚠️ SUBAGENT SECURITY ALERT (#21460): A ${agentType} subagent "${agentName}" was ` +
+      `spawned with sensitive content patterns (${sensitiveMatches.join(', ')}). ` +
+      `This subagent's tool calls bypass all PreToolUse hooks. Exercise caution with its output.`
+    );
   }
+  console.log(JSON.stringify({ continue: true }));
 }
 
 main().catch(() => {

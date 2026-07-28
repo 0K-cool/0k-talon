@@ -561,8 +561,11 @@ async function main(): Promise<void> {
 
   if (packages.length > 0) {
     console.log(JSON.stringify({
-      additionalContext: `🔗 TALON SUPPLY CHAIN (L14): Scanned ${packages.length} package(s) via ${pm} — all clean. ` +
-        `Packages: ${packages.join(', ')}. PostToolUse hook will run npm/pip audit after install.`,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext: `🔗 TALON SUPPLY CHAIN (L14): Scanned ${packages.length} package(s) via ${pm} — all clean. ` +
+          `Packages: ${packages.join(', ')}. PostToolUse hook will run npm/pip audit after install.`,
+      },
     }));
   }
 

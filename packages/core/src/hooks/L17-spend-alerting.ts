@@ -128,9 +128,12 @@ async function main() {
     if (triggeredThreshold) {
       console.log(JSON.stringify({
         continue: true,
-        additionalContext: `💰 TALON L17 SPEND ${triggeredThreshold}: Session cost is $${state.total_cost_usd.toFixed(4)} (${state.tool_calls} tool calls). ` +
-          `Thresholds: WARNING=$${THRESHOLDS.WARNING}, ALERT=$${THRESHOLDS.ALERT}, CRITICAL=$${THRESHOLDS.CRITICAL}. ` +
-          `Consider more efficient approaches or inform user about costs.`,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `💰 TALON L17 SPEND ${triggeredThreshold}: Session cost is $${state.total_cost_usd.toFixed(4)} (${state.tool_calls} tool calls). ` +
+            `Thresholds: WARNING=$${THRESHOLDS.WARNING}, ALERT=$${THRESHOLDS.ALERT}, CRITICAL=$${THRESHOLDS.CRITICAL}. ` +
+            `Consider more efficient approaches or inform user about costs.`,
+        },
       }));
     } else {
       console.log(JSON.stringify({ continue: true }));

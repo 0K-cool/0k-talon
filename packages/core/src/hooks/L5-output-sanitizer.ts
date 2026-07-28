@@ -138,9 +138,12 @@ async function main() {
 
     console.log(JSON.stringify({
       continue: true,
-      additionalContext: `⚠️ TALON L5: Unsafe output patterns detected in "${filePath}": ${patternNames}. ` +
-        `${criticalFindings.length > 0 ? 'CRITICAL risk! ' : ''}` +
-        ansiWarning + xssWarning,
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUse',
+        additionalContext: `⚠️ TALON L5: Unsafe output patterns detected in "${filePath}": ${patternNames}. ` +
+          `${criticalFindings.length > 0 ? 'CRITICAL risk! ' : ''}` +
+          ansiWarning + xssWarning,
+      },
     }));
 
     process.exit(0);

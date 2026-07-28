@@ -146,7 +146,10 @@ function main(): void {
       console.error(banner);
       console.log(
         JSON.stringify({
-          additionalContext: `🚨 ENFORCEMENT CANARY FAILURE — a 0K-Talon control that should BLOCK is not blocking:\n${list}\n\nDo NOT trust the affected layer until fixed. State: ${STATE_FILE}`,
+          hookSpecificOutput: {
+            hookEventName: 'SessionStart',
+            additionalContext: `🚨 ENFORCEMENT CANARY FAILURE — a 0K-Talon control that should BLOCK is not blocking:\n${list}\n\nDo NOT trust the affected layer until fixed. State: ${STATE_FILE}`,
+          },
         }),
       );
     } else {

@@ -475,13 +475,16 @@ async function main() {
 
       console.log(JSON.stringify({
         continue: true,
-        additionalContext:
-          `⚠️ TALON L2 AUTO-REVERT: "${filePath}" was ` +
-          `${revertMethod === 'delete' ? 'DELETED' : 'reverted via git'} — ${decision.reason}. ` +
-          `If this is a FALSE POSITIVE (e.g. security-tool code that contains detection patterns), ` +
-          `review the quarantined copy${quarantinePath ? ` at ${quarantinePath}` : ''} and re-apply, ` +
-          `or add the path to WARN_ONLY_PATHS in lib/l2-security-review.ts. ` +
-          `Static findings: ${findings.map(f => f.rule).join(', ') || 'none'}.`,
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext:
+            `⚠️ TALON L2 AUTO-REVERT: "${filePath}" was ` +
+            `${revertMethod === 'delete' ? 'DELETED' : 'reverted via git'} — ${decision.reason}. ` +
+            `If this is a FALSE POSITIVE (e.g. security-tool code that contains detection patterns), ` +
+            `review the quarantined copy${quarantinePath ? ` at ${quarantinePath}` : ''} and re-apply, ` +
+            `or add the path to WARN_ONLY_PATHS in lib/l2-security-review.ts. ` +
+            `Static findings: ${findings.map(f => f.rule).join(', ') || 'none'}.`,
+        },
       }));
       recordSuccess(HOOK_NAME);
       process.exit(0);
@@ -525,9 +528,12 @@ async function main() {
 
       // Output additionalContext for behavioral defense
       const context = {
-        additionalContext: `SECURITY ALERT: ${findings.length} security issue(s) found in ${basename(filePath)}. ` +
-          `${critical.length} CRITICAL, ${high.length} HIGH. ` +
-          `Review and fix before proceeding. Issues: ${findings.map(f => f.rule).join(', ')}`
+        hookSpecificOutput: {
+          hookEventName: 'PostToolUse',
+          additionalContext: `SECURITY ALERT: ${findings.length} security issue(s) found in ${basename(filePath)}. ` +
+            `${critical.length} CRITICAL, ${high.length} HIGH. ` +
+            `Review and fix before proceeding. Issues: ${findings.map(f => f.rule).join(', ')}`
+        },
       };
       console.log(JSON.stringify(context));
     }
