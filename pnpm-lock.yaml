@@ -30,8 +30,8 @@ importers:
   packages/core:
     dependencies:
       '@cedar-policy/cedar-wasm':
-        specifier: ^4.11.0
-        version: 4.11.0
+        specifier: ^4.11.2
+        version: 4.11.2
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^2.1.0
@@ -82,8 +82,8 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
-  '@cedar-policy/cedar-wasm@4.11.0':
-    resolution: {integrity: sha512-jIpMGPXKu6spe9PMXdSUqFMK5nJmAyTxRKRA2eegxQhGRRjDrbPuQB2C0+ARGs2OjqhoexgGODf8Y/rPACQI7A==}
+  '@cedar-policy/cedar-wasm@4.11.2':
+    resolution: {integrity: sha512-WirTj7pAQnP2fRAuJ5OLIl4VmQiUiyGgHku+eNTSXm9LJHMU/v14vHz6nEcxAQjR6oXtm21zRsHEBIbWP9TJ5A==}
 
   '@esbuild/aix-ppc64@0.27.7':
     resolution: {integrity: sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg==}
@@ -1339,7 +1339,7 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
-  '@cedar-policy/cedar-wasm@4.11.0': {}
+  '@cedar-policy/cedar-wasm@4.11.2': {}
 
   '@esbuild/aix-ppc64@0.27.7':
     optional: true
