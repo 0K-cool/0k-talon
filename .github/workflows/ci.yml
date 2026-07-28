@@ -149,3 +149,20 @@ jobs:
           # turbo.json: tests dependsOn ^build, so shared packages
           # are built before tests execute.
           pnpm test
+
+      # Build and typecheck as EXPLICIT steps, not inherited from turbo's graph.
+      #
+      # `turbo run test` dependsOn ^build — UPSTREAM packages only. @0k-talon/core
+      # has no upstream deps, so its own compiler never ran in CI. main shipped
+      # 7 TypeScript errors under a green check until 2026-07-28, and the four
+      # dependency majors merged that day (typescript 7, vitest 4, @types/node 26,
+      # eslint 10) all passed a CI that structurally could not have caught a break.
+      # They had to be built locally to be trusted.
+      #
+      # Separate steps rather than one line: an aggregate result is how "the
+      # suite ran" conceals "this part didn't".
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
